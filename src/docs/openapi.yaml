@@ -1,0 +1,773 @@
+openapi: 3.0.3
+info:
+  title: ReconMarket API
+  description: |
+    Backend API for ReconMarket marketplace.
+
+    ## Authentication
+    Most protected routes require a Bearer token from `/api/auth/login` or `/api/auth/register`.
+
+    ## Roles
+    - **USER** — can buy; must be verified to sell
+    - **ADMIN** — manages seller verification and user roles
+
+    ## Verification types
+    - **NONE** — default; cannot sell
+    - **INDIVIDUAL_SELLER** — approved with ID document
+    - **BUSINESS_SELLER** — approved with RDB certificate
+  version: 1.0.0
+  contact:
+    name: ReconMarket
+
+servers:
+  - url: http://localhost:3000
+    description: Local development
+
+tags:
+  - name: Health
+    description: Service health checks
+  - name: Auth
+    description: Registration, login, tokens, email & password
+  - name: Verification
+    description: Seller verification (individual & business)
+  - name: Admin
+    description: Admin-only management (requires ADMIN role)
+
+paths:
+  /api/health:
+    get:
+      tags: [Health]
+      summary: Health check
+      description: Returns API and database connectivity status.
+      operationId: getHealth
+      responses:
+        '200':
+          description: Health status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: ok
+                service: reconmarket-backend
+                database: ok
+                timestamp: '2026-06-13T15:00:00.000Z'
+
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user
+      description: Creates a USER account and sends an email verification OTP.
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout
+      description: Revokes the refresh token.
+      operationId: logout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: Logged out successfully
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh access token
+      description: Rotates refresh token and returns new access + refresh tokens.
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Tokens refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/auth/verify-email:
+    post:
+      tags: [Auth]
+      summary: Verify email
+      description: Confirms email with 6-digit OTP sent on registration.
+      operationId: verifyEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyEmailRequest'
+      responses:
+        '200':
+          description: Email verified
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/PublicUser'
+                  message:
+                    type: string
+                    example: Email verified successfully
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/auth/resend-verification:
+    post:
+      tags: [Auth]
+      summary: Resend email verification OTP
+      operationId: resendVerification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailRequest'
+      responses:
+        '200':
+          description: OTP sent if account exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: If the account exists, a verification email has been sent.
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Request password reset
+      description: Sends a 6-digit OTP to the email if the account exists.
+      operationId: forgotPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailRequest'
+      responses:
+        '200':
+          description: Reset code sent if account exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: If the account exists, a password reset code has been sent.
+
+  /api/auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Reset password
+      description: Resets password using OTP and revokes all refresh tokens.
+      operationId: resetPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Password reset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: Password reset successfully. Please log in again.
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current user
+      operationId: getMe
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/PublicUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/verification/apply:
+    post:
+      tags: [Verification]
+      summary: Apply for seller verification
+      description: |
+        Submit verification documents. Requires verified email.
+
+        - **INDIVIDUAL_SELLER** — provide `documentUrl` (national ID)
+        - **BUSINESS_SELLER** — provide `documentUrl` (RDB certificate) + `businessName`
+      operationId: applyVerification
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplyVerificationRequest'
+            examples:
+              individual:
+                summary: Individual seller
+                value:
+                  requestedType: INDIVIDUAL_SELLER
+                  documentUrl: https://storage.example.com/id/passport.pdf
+              business:
+                summary: Business seller
+                value:
+                  requestedType: BUSINESS_SELLER
+                  documentUrl: https://storage.example.com/rdb/certificate.pdf
+                  businessName: Acme Trading Ltd
+      responses:
+        '201':
+          description: Verification submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  verification:
+                    $ref: '#/components/schemas/SellerVerification'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/verification/status:
+    get:
+      tags: [Verification]
+      summary: Get verification status
+      operationId: getVerificationStatus
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Verification status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationStatusResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/admin/verifications/pending:
+    get:
+      tags: [Admin]
+      summary: List pending verifications
+      operationId: listPendingVerifications
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Pending verification requests
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verifications:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SellerVerificationWithUser'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/admin/verifications/{id}:
+    patch:
+      tags: [Admin]
+      summary: Review verification request
+      description: Approve, reject, or request resubmission. Approval sets user verification type.
+      operationId: reviewVerification
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/VerificationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewVerificationRequest'
+            examples:
+              approve:
+                summary: Approve
+                value:
+                  status: APPROVED
+              reject:
+                summary: Reject
+                value:
+                  status: REJECTED
+                  rejectionReason: Document is expired or unreadable
+      responses:
+        '200':
+          description: Verification reviewed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verification:
+                    $ref: '#/components/schemas/SellerVerification'
+                  user:
+                    $ref: '#/components/schemas/PublicUser'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/admin/users/{id}/role:
+    patch:
+      tags: [Admin]
+      summary: Update user role
+      operationId: updateUserRole
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRoleRequest'
+      responses:
+        '200':
+          description: Role updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/PublicUser'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token from login or register
+
+  parameters:
+    VerificationId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Seller verification request ID
+    UserId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: User ID
+
+  responses:
+    ValidationError:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: Validation failed
+            details:
+              email: [Invalid email]
+    Unauthorized:
+      description: Authentication required or invalid token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: Authentication required
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: Insufficient permissions
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: Not found
+    Conflict:
+      description: Resource conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: Email or phone already registered
+
+  schemas:
+    UserRole:
+      type: string
+      enum: [USER, ADMIN]
+
+    VerificationType:
+      type: string
+      enum: [NONE, INDIVIDUAL_SELLER, BUSINESS_SELLER]
+
+    VerificationStatus:
+      type: string
+      enum: [PENDING, APPROVED, REJECTED, RESUBMIT_REQUIRED]
+
+    PublicUser:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          nullable: true
+        firstName:
+          type: string
+        lastName:
+          type: string
+        avatarUrl:
+          type: string
+          nullable: true
+        role:
+          $ref: '#/components/schemas/UserRole'
+        verificationType:
+          $ref: '#/components/schemas/VerificationType'
+        isEmailVerified:
+          type: boolean
+        isPhoneVerified:
+          type: boolean
+        isActive:
+          type: boolean
+        canSell:
+          type: boolean
+          description: True when verificationType is INDIVIDUAL_SELLER or BUSINESS_SELLER
+        lastLoginAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    RegisterRequest:
+      type: object
+      required: [email, password, firstName, lastName]
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          minLength: 8
+          example: securePass123
+        firstName:
+          type: string
+          example: John
+        lastName:
+          type: string
+          example: Doe
+        phone:
+          type: string
+          minLength: 10
+          maxLength: 20
+          example: '+250788123456'
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    EmailRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+
+    VerifyEmailRequest:
+      type: object
+      required: [email, code]
+      properties:
+        email:
+          type: string
+          format: email
+        code:
+          type: string
+          minLength: 6
+          maxLength: 6
+          example: '708409'
+
+    ResetPasswordRequest:
+      type: object
+      required: [email, code, newPassword]
+      properties:
+        email:
+          type: string
+          format: email
+        code:
+          type: string
+          minLength: 6
+          maxLength: 6
+        newPassword:
+          type: string
+          minLength: 8
+
+    RefreshTokenRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+
+    UpdateRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role:
+          $ref: '#/components/schemas/UserRole'
+
+    ApplyVerificationRequest:
+      type: object
+      required: [requestedType, documentUrl]
+      properties:
+        requestedType:
+          type: string
+          enum: [INDIVIDUAL_SELLER, BUSINESS_SELLER]
+        documentUrl:
+          type: string
+          format: uri
+          description: URL to ID document or RDB certificate
+        businessName:
+          type: string
+          minLength: 2
+          maxLength: 200
+          description: Required when requestedType is BUSINESS_SELLER
+
+    ReviewVerificationRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [APPROVED, REJECTED, RESUBMIT_REQUIRED]
+        rejectionReason:
+          type: string
+          minLength: 3
+          maxLength: 500
+          description: Required when status is REJECTED or RESUBMIT_REQUIRED
+
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/PublicUser'
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        message:
+          type: string
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        service:
+          type: string
+        database:
+          type: string
+          enum: [ok, error]
+        timestamp:
+          type: string
+          format: date-time
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        details:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        message:
+          type: string
+          description: Included in development for 500 errors
+
+    SellerVerification:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        requestedType:
+          $ref: '#/components/schemas/VerificationType'
+        documentUrl:
+          type: string
+          format: uri
+        businessName:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/VerificationStatus'
+        rejectionReason:
+          type: string
+          nullable: true
+        reviewedById:
+          type: string
+          format: uuid
+          nullable: true
+        reviewedAt:
+          type: string
+          format: date-time
+          nullable: true
+        submittedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    SellerVerificationWithUser:
+      allOf:
+        - $ref: '#/components/schemas/SellerVerification'
+        - type: object
+          properties:
+            user:
+              $ref: '#/components/schemas/PublicUser'
+
+    VerificationStatusResponse:
+      type: object
+      properties:
+        verificationType:
+          $ref: '#/components/schemas/VerificationType'
+        canSell:
+          type: boolean
+        requests:
+          type: array
+          items:
+            $ref: '#/components/schemas/SellerVerification'
