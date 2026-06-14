@@ -28,7 +28,7 @@ export const simulateMockPaymentSchema = z.object({
 export type MockPaymentWebhookInput = z.infer<typeof mockPaymentWebhookSchema>;
 
 export const confirmPickupSchema = z.object({
-  pickupPhotoUrl: z.url(),
+  pickupPhotoUrl: z.url().optional(),
 });
 
 export const verifyReleaseOtpSchema = z.object({

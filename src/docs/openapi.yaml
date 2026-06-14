@@ -49,6 +49,8 @@ tags:
     description: Buy Now flow, escrow states, and pickup coordination.
   - name: Payments
     description: Mock mobile money payment intents, webhooks, and escrow.
+  - name: Chats
+    description: Buyer–seller messaging for negotiation, pickup, and disputes.
   - name: Admin
     description: Admin-only — manage categories, verifications, and user roles.
 
@@ -855,6 +857,156 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/chats/unread-count:
+    get:
+      tags: [Chats]
+      summary: Total unread messages
+      description: Returns unread message count across all chats for polling badges.
+      operationId: getChatUnreadCount
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Unread count
+
+  /api/chats:
+    get:
+      tags: [Chats]
+      summary: List my chats
+      description: |
+        Returns chats where the authenticated user is buyer or seller,
+        ordered by most recent message. Includes last message preview and unread count.
+      operationId: listChats
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Paginated chat list
+    post:
+      tags: [Chats]
+      summary: Start or resume chat
+      description: |
+        Creates a chat for a **listing + buyer/seller pair**, or returns the existing one.
+
+        - Buyer: send `listingId` only
+        - Seller: send `listingId` + `buyerId`
+        - Optional `initialMessage` and `transactionId` link
+
+      operationId: startChat
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartChatRequest'
+      responses:
+        '201':
+          description: Chat created or retrieved
+
+  /api/chats/{id}:
+    get:
+      tags: [Chats]
+      summary: Get chat details
+      operationId: getChatById
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Chat with participant and listing context
+
+  /api/chats/{id}/messages:
+    get:
+      tags: [Chats]
+      summary: List messages (supports polling)
+      description: |
+        Returns messages in a chat. Use `since` (ISO datetime) to poll for new messages only.
+
+        Example polling: `GET /api/chats/{id}/messages?since=2026-06-14T10:00:00.000Z&limit=50`
+      operationId: listChatMessages
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: since
+          in: query
+          description: Return messages created after this timestamp (polling)
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Messages list
+    post:
+      tags: [Chats]
+      summary: Send message
+      operationId: sendChatMessage
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '201':
+          description: Message sent
+
+  /api/chats/{id}/read:
+    patch:
+      tags: [Chats]
+      summary: Mark chat as read
+      description: Marks all messages from the other participant as read.
+      operationId: markChatAsRead
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Messages marked read
+
+  /api/chats/{id}/messages/{messageId}/read:
+    patch:
+      tags: [Chats]
+      summary: Mark single message as read
+      operationId: markMessageAsRead
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: messageId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Message marked read
+
   /api/transactions:
     post:
       tags: [Transactions]
@@ -981,16 +1133,42 @@ paths:
         '200':
           description: Payment details including escrowStatus (NONE, HELD, RELEASED, REFUNDED)
 
+  /api/transactions/{id}/pickup:
+    get:
+      tags: [Transactions]
+      summary: Get pickup status
+      description: |
+        Returns pickup confirmation state, photo URL, OTP status, and whether funds can be released.
+
+        Does **not** expose the release OTP code (buyer receives it via email / dev logs).
+
+        **Who can use:** Buyer or seller
+      operationId: getPickupStatus
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Pickup and OTP status
+
   /api/transactions/{id}/confirm-pickup:
     post:
       tags: [Transactions]
       summary: Confirm pickup (buyer)
       description: |
-        Buyer confirms item collection with a pickup photo.
+        Buyer confirms item collection and uploads **pickup photo evidence** to Cloudinary.
 
-        Moves **PAYMENT_CONFIRMED → IN_PROGRESS** and generates a **release OTP** for the buyer to share with the seller.
+        Moves **PAYMENT_CONFIRMED → IN_PROGRESS** and generates a **transaction-scoped release OTP**
+        (separate from auth OTPs, tied to `transactionId`).
 
-        Escrow remains **HELD** until seller verifies OTP.
+        Escrow remains **HELD** until seller verifies OTP. Idempotent if pickup was already confirmed.
+
+        **Upload options:**
+        - `multipart/form-data` with field `pickupPhoto` (recommended)
+        - JSON with `pickupPhotoUrl` if photo was uploaded elsewhere
 
         **Who can use:** Buyer only
       operationId: confirmPickup
@@ -1003,6 +1181,14 @@ paths:
       requestBody:
         required: true
         content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                pickupPhoto:
+                  type: string
+                  format: binary
+                  description: Photo taken at pickup (JPEG, PNG, WebP, GIF)
           application/json:
             schema:
               $ref: '#/components/schemas/ConfirmPickupRequest'
@@ -1010,12 +1196,35 @@ paths:
         '200':
           description: Pickup confirmed, release OTP generated
 
+  /api/transactions/{id}/regenerate-release-otp:
+    post:
+      tags: [Transactions]
+      summary: Regenerate release OTP (buyer)
+      description: |
+        Generates a new release OTP when the previous one expired.
+
+        Only available when pickup is confirmed and funds have not been released.
+
+        **Who can use:** Buyer only
+      operationId: regenerateReleaseOtp
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: New release OTP generated
+
   /api/transactions/{id}/verify-release-otp:
     post:
       tags: [Transactions]
       summary: Verify release OTP (seller)
       description: |
         Seller enters the OTP from the buyer after successful handover.
+
+        **Idempotent:** repeated calls after release return `alreadyReleased: true`.
 
         Releases escrow to seller and moves transaction **IN_PROGRESS → COMPLETED**.
 
@@ -1778,6 +1987,37 @@ components:
         size:
           type: integer
           description: File size in bytes
+
+    StartChatRequest:
+      type: object
+      required: [listingId]
+      properties:
+        listingId:
+          type: string
+          format: uuid
+        buyerId:
+          type: string
+          format: uuid
+          description: Required when the seller starts the chat
+        transactionId:
+          type: string
+          format: uuid
+        initialMessage:
+          type: string
+          maxLength: 5000
+
+    SendMessageRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 5000
+        type:
+          type: string
+          enum: [TEXT, IMAGE]
+          default: TEXT
 
     CreateTransactionRequest:
       type: object

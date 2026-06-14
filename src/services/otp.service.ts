@@ -118,7 +118,38 @@ export const createPickupReleaseOtp = async (params: {
     `[DEV PICKUP OTP] Release code for transaction ${params.transactionId}: ${code}`,
   );
 
+  await sendOtpEmail(params.buyerEmail, 'PICKUP_RELEASE', code);
+
   return code;
+};
+
+export const getPickupReleaseOtpStatus = async (transactionId: string) => {
+  const otp = await prisma.otp.findFirst({
+    where: {
+      transactionId,
+      purpose: 'PICKUP_RELEASE',
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (!otp) {
+    return {
+      active: false,
+      expiresAt: null,
+      verified: false,
+      attemptsRemaining: 0,
+    };
+  }
+
+  const verified = Boolean(otp.usedAt);
+  const active = !verified && !otp.usedAt && otp.expiresAt > new Date();
+
+  return {
+    active,
+    expiresAt: otp.expiresAt,
+    verified,
+    attemptsRemaining: Math.max(0, otp.maxAttempts - otp.attempts),
+  };
 };
 
 export const verifyPickupReleaseOtp = async (params: {

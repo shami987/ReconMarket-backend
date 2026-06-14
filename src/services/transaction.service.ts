@@ -2,14 +2,9 @@ import { Prisma, Transaction, TransactionStatus, User } from '@prisma/client';
 import { ACTIVE_TRANSACTION_STATUSES, calculateTransactionAmounts } from '../lib/transactions';
 import { AppError } from '../errors/AppError';
 import { prisma } from '../lib/prisma';
-import { createPickupReleaseOtp, verifyPickupReleaseOtp } from './otp.service';
-import {
-  initiateEscrowRefund,
-  processEscrowRelease,
-} from './payment.service';
+import { initiateEscrowRefund } from './payment.service';
 import { serializeDecimal } from '../utils/serialize';
 import { publicUserSelect } from '../utils/userSelect';
-import { env } from '../config/env';
 
 const listingSummarySelect = {
   id: true,
@@ -82,18 +77,6 @@ const assertCanAccessTransaction = (
     user.role !== 'ADMIN'
   ) {
     throw new AppError(403, 'You can only access your own transactions');
-  }
-};
-
-const assertBuyer = (transaction: Pick<Transaction, 'buyerId'>, user: User) => {
-  if (transaction.buyerId !== user.id && user.role !== 'ADMIN') {
-    throw new AppError(403, 'Only the buyer can perform this action');
-  }
-};
-
-const assertSeller = (transaction: Pick<Transaction, 'sellerId'>, user: User) => {
-  if (transaction.sellerId !== user.id && user.role !== 'ADMIN') {
-    throw new AppError(403, 'Only the seller can perform this action');
   }
 };
 
@@ -271,93 +254,6 @@ export const getTransactionById = async (id: string, user: User) => {
   const transaction = await getTransactionOrThrow(id);
   assertCanAccessTransaction(transaction, user);
   return serializeTransaction(transaction);
-};
-
-export const confirmPickup = async (
-  id: string,
-  user: User,
-  input: { pickupPhotoUrl: string },
-) => {
-  const transaction = await prisma.transaction.findUnique({
-    where: { id },
-    include: { payment: true, buyer: { select: { email: true } } },
-  });
-
-  if (!transaction) {
-    throw new AppError(404, 'Transaction not found');
-  }
-
-  assertBuyer(transaction, user);
-
-  if (transaction.status !== 'PAYMENT_CONFIRMED') {
-    throw new AppError(400, 'Pickup can only be confirmed after payment is secured in escrow');
-  }
-
-  if (!transaction.payment || transaction.payment.escrowStatus !== 'HELD') {
-    throw new AppError(400, 'Escrow funds must be held before pickup confirmation');
-  }
-
-  const releaseCode = await createPickupReleaseOtp({
-    transactionId: transaction.id,
-    buyerId: transaction.buyerId,
-    buyerEmail: transaction.buyer.email,
-  });
-
-  const updated = await prisma.transaction.update({
-    where: { id },
-    data: {
-      status: 'IN_PROGRESS',
-      pickupConfirmedAt: new Date(),
-      pickupPhotoUrl: input.pickupPhotoUrl,
-    },
-    include: transactionInclude,
-  });
-
-  return {
-    transaction: serializeTransaction(updated),
-    message: 'Pickup confirmed. Share the release code with the seller after collecting the item.',
-    ...(env.NODE_ENV === 'development' && { releaseCode }),
-  };
-};
-
-export const verifyReleaseOtp = async (
-  id: string,
-  user: User,
-  code: string,
-) => {
-  const transaction = await prisma.transaction.findUnique({
-    where: { id },
-    include: { payment: true },
-  });
-
-  if (!transaction) {
-    throw new AppError(404, 'Transaction not found');
-  }
-
-  assertSeller(transaction, user);
-
-  if (transaction.status !== 'IN_PROGRESS') {
-    throw new AppError(400, 'Release code can only be verified during an in-progress transaction');
-  }
-
-  if (!transaction.payment || transaction.payment.escrowStatus !== 'HELD') {
-    throw new AppError(400, 'No escrow funds available for release');
-  }
-
-  await verifyPickupReleaseOtp({ transactionId: id, code });
-
-  const updated = await prisma.$transaction(async (tx) => {
-    await processEscrowRelease(tx, transaction.payment!);
-    return tx.transaction.findUniqueOrThrow({
-      where: { id },
-      include: transactionInclude,
-    });
-  });
-
-  return {
-    transaction: serializeTransaction(updated),
-    message: 'Pickup verified. Escrow funds released to seller.',
-  };
 };
 
 export const cancelTransaction = async (

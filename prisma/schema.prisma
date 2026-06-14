@@ -240,6 +240,8 @@ model Transaction {
   paymentReference String?
   pickupConfirmedAt DateTime?
   pickupPhotoUrl    String?
+  releaseOtpGeneratedAt DateTime?
+  pickupOtpVerifiedAt   DateTime?
   fundsReleasedAt   DateTime?
   notes            String?
   completedAt      DateTime?

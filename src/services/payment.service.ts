@@ -187,14 +187,40 @@ export const processEscrowRefund = async (
 export const processEscrowRelease = async (
   tx: Prisma.TransactionClient,
   payment: { id: string; transactionId: string },
-) => {
-  await tx.payment.update({
+): Promise<{ transaction: Prisma.TransactionGetPayload<object>; alreadyReleased: boolean }> => {
+  const currentPayment = await tx.payment.findUnique({
     where: { id: payment.id },
+  });
+
+  if (!currentPayment) {
+    throw new AppError(404, 'Payment not found');
+  }
+
+  if (currentPayment.escrowStatus === 'RELEASED') {
+    const transaction = await tx.transaction.findUniqueOrThrow({
+      where: { id: payment.transactionId },
+    });
+    return { transaction, alreadyReleased: true };
+  }
+
+  if (currentPayment.escrowStatus !== 'HELD') {
+    throw new AppError(400, 'Escrow funds are not available for release');
+  }
+
+  const releaseResult = await tx.payment.updateMany({
+    where: { id: payment.id, escrowStatus: 'HELD' },
     data: {
       escrowStatus: 'RELEASED',
       releasedAt: new Date(),
     },
   });
+
+  if (releaseResult.count === 0) {
+    const transaction = await tx.transaction.findUniqueOrThrow({
+      where: { id: payment.transactionId },
+    });
+    return { transaction, alreadyReleased: true };
+  }
 
   const transaction = await tx.transaction.findUniqueOrThrow({
     where: { id: payment.transactionId },
@@ -208,7 +234,7 @@ export const processEscrowRelease = async (
     },
   });
 
-  return tx.transaction.update({
+  const updatedTransaction = await tx.transaction.update({
     where: { id: payment.transactionId },
     data: {
       status: 'COMPLETED',
@@ -216,7 +242,15 @@ export const processEscrowRelease = async (
       fundsReleasedAt: new Date(),
     },
   });
+
+  return { transaction: updatedTransaction, alreadyReleased: false };
 };
+
+export const releaseEscrowFunds = async (paymentId: string) =>
+  prisma.$transaction(async (tx) => {
+    const payment = await tx.payment.findUniqueOrThrow({ where: { id: paymentId } });
+    return processEscrowRelease(tx, payment);
+  });
 
 export const handleMockPaymentWebhook = async (input: MockPaymentWebhookInput) => {
   const payment = await prisma.payment.findUnique({
