@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { updateRoleSchema } from '../schemas/auth.schema';
 import { reviewVerificationSchema } from '../schemas/verification.schema';
+import { adminCategoryRouter } from './category.routes';
 import * as authService from '../services/auth.service';
 import * as verificationService from '../services/verification.service';
 import { authenticate } from '../middleware/authenticate';
@@ -11,6 +12,8 @@ import { asyncHandler } from '../utils/asyncHandler';
 const router = Router();
 
 router.use(authenticate, requireRole('ADMIN'));
+
+router.use('/categories', adminCategoryRouter);
 
 router.get(
   '/verifications/pending',

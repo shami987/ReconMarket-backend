@@ -16,6 +16,12 @@ export const validate =
       return;
     }
 
-    req[part] = result.data;
+    if (part === 'body') {
+      req.body = result.data;
+    } else if (part === 'query') {
+      req.validatedQuery = result.data;
+    }
+    // params are read-only in Express 5 — validation only, no reassignment
+
     next();
   };

@@ -2,19 +2,28 @@ openapi: 3.0.3
 info:
   title: ReconMarket API
   description: |
-    Backend API for ReconMarket marketplace.
+    Backend API for **ReconMarket** — a verified marketplace for construction materials in Rwanda.
 
-    ## Authentication
-    Most protected routes require a Bearer token from `/api/auth/login` or `/api/auth/register`.
+    ## How to authenticate
+    1. Call `POST /api/auth/login` or `POST /api/auth/register`
+    2. Copy the `accessToken` from the response
+    3. Click **Authorize** and enter: `Bearer <accessToken>`
 
     ## Roles
-    - **USER** — can buy; must be verified to sell
-    - **ADMIN** — manages seller verification and user roles
+    | Role | Permissions |
+    |------|-------------|
+    | **USER** | Can browse and buy. Must be verified to sell. |
+    | **ADMIN** | Manages categories, seller verification, and user roles. |
 
-    ## Verification types
-    - **NONE** — default; cannot sell
-    - **INDIVIDUAL_SELLER** — approved with ID document
-    - **BUSINESS_SELLER** — approved with RDB certificate
+    ## Seller verification
+    | Type | Meaning |
+    |------|---------|
+    | **NONE** | Default — cannot create listings |
+    | **INDIVIDUAL_SELLER** | Approved with national ID — can sell |
+    | **BUSINESS_SELLER** | Approved with RDB certificate — can sell |
+
+    ## Listing lifecycle
+    `DRAFT` → publish → `ACTIVE` → `SOLD` / `REMOVED`
   version: 1.0.0
   contact:
     name: ReconMarket
@@ -25,24 +34,33 @@ servers:
 
 tags:
   - name: Health
-    description: Service health checks
+    description: Check that the API and database are running.
   - name: Auth
-    description: Registration, login, tokens, email & password
+    description: Register, login, tokens, email verification, and password reset.
   - name: Verification
-    description: Seller verification (individual & business)
+    description: Apply to become a verified seller (individual or business).
+  - name: Categories
+    description: Browse construction material categories (Steel, Cement, Wood, etc.).
+  - name: Listings
+    description: Browse, create, and manage construction material listings.
   - name: Admin
-    description: Admin-only management (requires ADMIN role)
+    description: Admin-only — manage categories, verifications, and user roles.
 
 paths:
   /api/health:
     get:
       tags: [Health]
       summary: Health check
-      description: Returns API and database connectivity status.
+      description: |
+        Returns the API status and whether PostgreSQL is reachable.
+        Use this to confirm the server is up before calling other endpoints.
+
+        - `status: ok` — API and database are healthy
+        - `status: degraded` — API is up but database connection failed
       operationId: getHealth
       responses:
         '200':
-          description: Health status
+          description: Health status returned successfully
           content:
             application/json:
               schema:
@@ -56,8 +74,15 @@ paths:
   /api/auth/register:
     post:
       tags: [Auth]
-      summary: Register a new user
-      description: Creates a USER account and sends an email verification OTP.
+      summary: Register a new account
+      description: |
+        Creates a new **USER** account with `verificationType: NONE`.
+
+        - Hashes and stores the password securely (bcrypt)
+        - Sends a 6-digit OTP to the email for verification
+        - Returns `accessToken` and `refreshToken` immediately (email still needs verifying)
+
+        **Who can use:** Anyone (public)
       operationId: register
       requestBody:
         required: true
@@ -67,12 +92,13 @@ paths:
               $ref: '#/components/schemas/RegisterRequest'
       responses:
         '201':
-          description: User created
+          description: Account created — verify email with the OTP sent
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
         '409':
+          description: Email or phone already registered
           $ref: '#/components/responses/Conflict'
         '400':
           $ref: '#/components/responses/ValidationError'
@@ -80,7 +106,14 @@ paths:
   /api/auth/login:
     post:
       tags: [Auth]
-      summary: Login
+      summary: Log in
+      description: |
+        Authenticates with email and password. Returns JWT tokens on success.
+
+        - `accessToken` — short-lived (15 min), send as `Authorization: Bearer <token>`
+        - `refreshToken` — long-lived (7 days), use to get new tokens via `/api/auth/refresh`
+
+        **Who can use:** Anyone with an account (public)
       operationId: login
       requestBody:
         required: true
@@ -90,12 +123,13 @@ paths:
               $ref: '#/components/schemas/LoginRequest'
       responses:
         '200':
-          description: Login successful
+          description: Login successful — tokens returned
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
         '401':
+          description: Invalid email or password
           $ref: '#/components/responses/Unauthorized'
         '400':
           $ref: '#/components/responses/ValidationError'
@@ -103,8 +137,13 @@ paths:
   /api/auth/logout:
     post:
       tags: [Auth]
-      summary: Logout
-      description: Revokes the refresh token.
+      summary: Log out
+      description: |
+        Revokes the provided refresh token so it can no longer be used to obtain new access tokens.
+
+        The access token remains valid until it expires (~15 min). For full logout, discard both tokens on the client.
+
+        **Who can use:** Anyone with a valid refresh token (public)
       operationId: logout
       requestBody:
         required: true
@@ -114,7 +153,7 @@ paths:
               $ref: '#/components/schemas/RefreshTokenRequest'
       responses:
         '200':
-          description: Logged out
+          description: Refresh token revoked
           content:
             application/json:
               schema:
@@ -128,7 +167,12 @@ paths:
     post:
       tags: [Auth]
       summary: Refresh access token
-      description: Rotates refresh token and returns new access + refresh tokens.
+      description: |
+        Exchanges a valid refresh token for a new access token **and** a new refresh token (token rotation).
+
+        The old refresh token is revoked after use. Call this when the access token expires.
+
+        **Who can use:** Anyone with a valid, non-revoked refresh token (public)
       operationId: refreshToken
       requestBody:
         required: true
@@ -138,19 +182,25 @@ paths:
               $ref: '#/components/schemas/RefreshTokenRequest'
       responses:
         '200':
-          description: Tokens refreshed
+          description: New token pair issued
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
         '401':
+          description: Refresh token invalid, expired, or revoked
           $ref: '#/components/responses/Unauthorized'
 
   /api/auth/verify-email:
     post:
       tags: [Auth]
-      summary: Verify email
-      description: Confirms email with 6-digit OTP sent on registration.
+      summary: Verify email address
+      description: |
+        Confirms the user's email using the 6-digit OTP sent during registration or resend.
+
+        Sets `isEmailVerified: true` on the account. Required before applying for seller verification.
+
+        **Who can use:** Anyone (public — needs email + OTP code)
       operationId: verifyEmail
       requestBody:
         required: true
@@ -160,7 +210,7 @@ paths:
               $ref: '#/components/schemas/VerifyEmailRequest'
       responses:
         '200':
-          description: Email verified
+          description: Email verified successfully
           content:
             application/json:
               schema:
@@ -172,12 +222,19 @@ paths:
                     type: string
                     example: Email verified successfully
         '400':
+          description: Invalid or expired OTP code
           $ref: '#/components/responses/ValidationError'
 
   /api/auth/resend-verification:
     post:
       tags: [Auth]
       summary: Resend email verification OTP
+      description: |
+        Sends a new 6-digit OTP to the email if an unverified account exists.
+
+        Always returns the same success message whether or not the email exists (prevents account enumeration).
+
+        **Who can use:** Anyone (public)
       operationId: resendVerification
       requestBody:
         required: true
@@ -187,7 +244,7 @@ paths:
               $ref: '#/components/schemas/EmailRequest'
       responses:
         '200':
-          description: OTP sent if account exists
+          description: OTP sent if account exists and is unverified
           content:
             application/json:
               schema:
@@ -195,13 +252,19 @@ paths:
               example:
                 message: If the account exists, a verification email has been sent.
         '400':
+          description: Email is already verified
           $ref: '#/components/responses/ValidationError'
 
   /api/auth/forgot-password:
     post:
       tags: [Auth]
       summary: Request password reset
-      description: Sends a 6-digit OTP to the email if the account exists.
+      description: |
+        Sends a 6-digit password reset OTP to the email if an active account exists.
+
+        Always returns the same message regardless of whether the email exists (security best practice).
+
+        **Who can use:** Anyone (public)
       operationId: forgotPassword
       requestBody:
         required: true
@@ -223,7 +286,12 @@ paths:
     post:
       tags: [Auth]
       summary: Reset password
-      description: Resets password using OTP and revokes all refresh tokens.
+      description: |
+        Sets a new password using the OTP from `/api/auth/forgot-password`.
+
+        Also revokes **all** active refresh tokens, forcing re-login on all devices.
+
+        **Who can use:** Anyone with a valid reset OTP (public)
       operationId: resetPassword
       requestBody:
         required: true
@@ -233,7 +301,7 @@ paths:
               $ref: '#/components/schemas/ResetPasswordRequest'
       responses:
         '200':
-          description: Password reset
+          description: Password updated — log in again with new password
           content:
             application/json:
               schema:
@@ -241,12 +309,19 @@ paths:
               example:
                 message: Password reset successfully. Please log in again.
         '400':
+          description: Invalid or expired OTP
           $ref: '#/components/responses/ValidationError'
 
   /api/auth/me:
     get:
       tags: [Auth]
-      summary: Get current user
+      summary: Get current user profile
+      description: |
+        Returns the authenticated user's profile including role, verification type, and `canSell` flag.
+
+        Use this to check login state and whether the user is allowed to create listings.
+
+        **Who can use:** Authenticated users only
       operationId: getMe
       security:
         - bearerAuth: []
@@ -268,10 +343,18 @@ paths:
       tags: [Verification]
       summary: Apply for seller verification
       description: |
-        Submit verification documents. Requires verified email.
+        Submits a request to become a verified seller. An admin must approve before the user can create listings.
 
-        - **INDIVIDUAL_SELLER** — provide `documentUrl` (national ID)
-        - **BUSINESS_SELLER** — provide `documentUrl` (RDB certificate) + `businessName`
+        **Requirements:**
+        - Email must be verified (`isEmailVerified: true`)
+        - User must not already be verified
+        - No other pending request may exist
+
+        **Document types:**
+        - `INDIVIDUAL_SELLER` — upload national ID (`documentUrl`)
+        - `BUSINESS_SELLER` — upload RDB certificate (`documentUrl`) + `businessName`
+
+        **Who can use:** Authenticated users with verified email
       operationId: applyVerification
       security:
         - bearerAuth: []
@@ -283,19 +366,19 @@ paths:
               $ref: '#/components/schemas/ApplyVerificationRequest'
             examples:
               individual:
-                summary: Individual seller
+                summary: Individual seller (national ID)
                 value:
                   requestedType: INDIVIDUAL_SELLER
                   documentUrl: https://storage.example.com/id/passport.pdf
               business:
-                summary: Business seller
+                summary: Business seller (RDB certificate)
                 value:
                   requestedType: BUSINESS_SELLER
                   documentUrl: https://storage.example.com/rdb/certificate.pdf
                   businessName: Acme Trading Ltd
       responses:
         '201':
-          description: Verification submitted
+          description: Verification request submitted — awaiting admin review
           content:
             application/json:
               schema:
@@ -306,20 +389,28 @@ paths:
                   verification:
                     $ref: '#/components/schemas/SellerVerification'
         '403':
+          description: Email not verified
           $ref: '#/components/responses/Forbidden'
         '409':
+          description: Already verified or pending request exists
           $ref: '#/components/responses/Conflict'
 
   /api/verification/status:
     get:
       tags: [Verification]
-      summary: Get verification status
+      summary: Get my verification status
+      description: |
+        Returns the user's current `verificationType`, whether they can sell, and their recent verification requests (including pending/rejected).
+
+        Use this on the seller dashboard to show verification progress.
+
+        **Who can use:** Authenticated users only
       operationId: getVerificationStatus
       security:
         - bearerAuth: []
       responses:
         '200':
-          description: Verification status
+          description: Verification status and request history
           content:
             application/json:
               schema:
@@ -327,16 +418,355 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /api/categories/tree:
+    get:
+      tags: [Categories]
+      summary: Get full category tree
+      description: |
+        Returns all parent categories with subcategories nested in `children`.
+
+        Use for navigation menus and filter sidebars.
+
+        **Who can use:** Anyone (public)
+      operationId: getCategoryTree
+      responses:
+        '200':
+          description: Full category tree with nested subcategories
+
+  /api/categories:
+    get:
+      tags: [Categories]
+      summary: List categories
+      description: |
+        Returns paginated categories. Defaults to **parent categories only**.
+
+        Subcategories are nested in `children` unless `includeSubcategories=false`.
+
+        Use `parentId=<uuid>` to list subcategories of one parent.
+
+        **Who can use:** Anyone (public)
+      operationId: listCategories
+      parameters:
+        - name: page
+          in: query
+          description: Page number (starts at 1)
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          description: Items per page (max 100)
+          schema: { type: integer, default: 20 }
+        - name: parentId
+          in: query
+          description: Parent UUID — omit for top-level categories
+          schema: { type: string, format: uuid }
+        - name: includeSubcategories
+          in: query
+          description: Nest subcategories in response when listing parents (default true)
+          schema: { type: string, enum: [true, false], default: true }
+      responses:
+        '200':
+          description: Paginated categories with optional nested subcategories
+
+  /api/categories/{slug}:
+    get:
+      tags: [Categories]
+      summary: Get category by slug
+      description: |
+        Returns a category by slug, including its **subcategories** in `children` and parent info if it is a subcategory.
+
+        Examples: `steel-metal` (parent), `steel-rods` (subcategory under Steel & Metal).
+
+        **Who can use:** Anyone (public)
+      operationId: getCategoryBySlug
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: Category slug (e.g. `steel-metal`, `cement-concrete`)
+          schema: { type: string }
+          example: steel-metal
+      responses:
+        '200':
+          description: Category details with children
+        '404':
+          description: Category not found or inactive
+          $ref: '#/components/responses/NotFound'
+
+  /api/listings:
+    get:
+      tags: [Listings]
+      summary: Browse marketplace listings
+      description: |
+        Returns paginated **ACTIVE** listings for the public marketplace feed.
+
+        Supports search, category filter, price range, location, condition, and sorting — matching the frontend marketplace filters.
+
+        Each listing includes seller summary, category, and images.
+
+        **Who can use:** Anyone (public)
+      operationId: listListings
+      parameters:
+        - name: page
+          in: query
+          description: Page number
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          description: Items per page
+          schema: { type: integer, default: 20 }
+        - name: categoryId
+          in: query
+          description: Filter by category UUID
+          schema: { type: string, format: uuid }
+        - name: categorySlug
+          in: query
+          description: Filter by category slug (e.g. `steel-metal`)
+          schema: { type: string }
+        - name: search
+          in: query
+          description: Search in title and description
+          schema: { type: string }
+        - name: minPrice
+          in: query
+          description: Minimum price in listing currency (RWF)
+          schema: { type: number }
+        - name: maxPrice
+          in: query
+          description: Maximum price in listing currency (RWF)
+          schema: { type: number }
+        - name: city
+          in: query
+          description: Filter by city (e.g. Kigali)
+          schema: { type: string }
+        - name: condition
+          in: query
+          description: Material condition
+          schema:
+            type: string
+            enum: [NEW, LIKE_NEW, GOOD, FAIR, POOR]
+        - name: sort
+          in: query
+          description: Sort order for results
+          schema:
+            type: string
+            enum: [newest, oldest, price_asc, price_desc]
+            default: newest
+      responses:
+        '200':
+          description: Paginated listings with seller and category info
+    post:
+      tags: [Listings]
+      summary: Create a new listing
+      description: |
+        Creates a new listing in **DRAFT** status. Must be published separately via `PATCH /api/listings/{id}/publish`.
+
+        **Requirements:**
+        - User must be a verified seller (`INDIVIDUAL_SELLER` or `BUSINESS_SELLER`)
+        - At least one image is required
+        - Category must exist and be active
+
+        Default currency is **RWF** (Rwandan Franc).
+
+        **Who can use:** Verified sellers only
+      operationId: createListing
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateListingRequest'
+      responses:
+        '201':
+          description: Listing created as DRAFT
+        '403':
+          description: Seller verification required
+          $ref: '#/components/responses/Forbidden'
+
+  /api/listings/seller/me:
+    get:
+      tags: [Listings]
+      summary: Get my listings
+      description: |
+        Returns all listings owned by the authenticated seller, including drafts and removed items.
+
+        Optionally filter by `status` (e.g. `DRAFT`, `ACTIVE`). Use on the seller dashboard.
+
+        **Who can use:** Authenticated users
+      operationId: getMyListings
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: status
+          in: query
+          description: Filter by listing status
+          schema:
+            type: string
+            enum: [DRAFT, ACTIVE, SOLD, RESERVED, EXPIRED, REMOVED]
+      responses:
+        '200':
+          description: Seller's own listings (all statuses)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/listings/seller/{sellerId}:
+    get:
+      tags: [Listings]
+      summary: Get seller public profile
+      description: |
+        Returns a seller's public profile: name, verification type, active listing count, and average review rating.
+
+        Use on product detail pages to show seller trust info.
+
+        **Who can use:** Anyone (public)
+      operationId: getSellerProfile
+      parameters:
+        - name: sellerId
+          in: path
+          required: true
+          description: Seller user UUID
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Seller public profile
+        '404':
+          description: Seller not found
+          $ref: '#/components/responses/NotFound'
+
+  /api/listings/{id}:
+    get:
+      tags: [Listings]
+      summary: Get listing details
+      description: |
+        Returns full listing details including all images, seller info, and category.
+
+        Increments the view counter for ACTIVE listings. Owners and admins can also view DRAFT listings.
+
+        **Who can use:** Anyone (public for ACTIVE listings)
+      operationId: getListingById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Listing UUID
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Full listing details
+        '404':
+          description: Listing not found or not visible
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Listings]
+      summary: Update a listing
+      description: |
+        Updates listing fields. Only the **owner** or an **admin** can update.
+
+        Sellers can only set status to `DRAFT` or `REMOVED` directly — use the publish endpoint to go live.
+
+        Replacing `images` deletes all existing images and creates new ones.
+
+        **Who can use:** Listing owner or admin (verified seller)
+      operationId: updateListing
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Listing UUID
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateListingRequest'
+      responses:
+        '200':
+          description: Listing updated
+        '403':
+          description: Not the listing owner
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Listings]
+      summary: Remove a listing
+      description: |
+        Soft-deletes the listing (sets `deletedAt` and status `REMOVED`). It will no longer appear in the marketplace.
+
+        Only the **owner** or an **admin** can remove a listing.
+
+        **Who can use:** Listing owner or admin (verified seller)
+      operationId: deleteListing
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Listing UUID
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Listing removed from marketplace
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/listings/{id}/publish:
+    patch:
+      tags: [Listings]
+      summary: Publish a listing
+      description: |
+        Moves a listing from **DRAFT** (or **REMOVED**) to **ACTIVE**, making it visible on the marketplace.
+
+        **Requirements:**
+        - Listing must have at least one image
+        - Only the owner or admin can publish
+
+        Sets `publishedAt` to the current timestamp.
+
+        **Who can use:** Listing owner or admin (verified seller)
+      operationId: publishListing
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Listing UUID
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Listing is now live on the marketplace
+        '400':
+          description: Missing images or invalid status for publishing
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /api/admin/verifications/pending:
     get:
       tags: [Admin]
-      summary: List pending verifications
+      summary: List pending seller verifications
+      description: |
+        Returns all seller verification requests awaiting admin review, oldest first.
+
+        Each entry includes the applicant's user profile and submitted documents.
+
+        **Who can use:** Admin only
       operationId: listPendingVerifications
       security:
         - bearerAuth: []
       responses:
         '200':
-          description: Pending verification requests
+          description: Pending verification requests with applicant details
           content:
             application/json:
               schema:
@@ -352,8 +782,15 @@ paths:
   /api/admin/verifications/{id}:
     patch:
       tags: [Admin]
-      summary: Review verification request
-      description: Approve, reject, or request resubmission. Approval sets user verification type.
+      summary: Review a seller verification
+      description: |
+        Approves, rejects, or requests resubmission of a seller verification request.
+
+        **On APPROVED:** Sets the user's `verificationType` to `INDIVIDUAL_SELLER` or `BUSINESS_SELLER` — they can now create listings.
+
+        **On REJECTED / RESUBMIT_REQUIRED:** Sends a notification to the user with the rejection reason.
+
+        **Who can use:** Admin only
       operationId: reviewVerification
       security:
         - bearerAuth: []
@@ -367,17 +804,17 @@ paths:
               $ref: '#/components/schemas/ReviewVerificationRequest'
             examples:
               approve:
-                summary: Approve
+                summary: Approve seller
                 value:
                   status: APPROVED
               reject:
-                summary: Reject
+                summary: Reject with reason
                 value:
                   status: REJECTED
                   rejectionReason: Document is expired or unreadable
       responses:
         '200':
-          description: Verification reviewed
+          description: Verification reviewed — user notified
           content:
             application/json:
               schema:
@@ -388,6 +825,7 @@ paths:
                   user:
                     $ref: '#/components/schemas/PublicUser'
         '400':
+          description: Missing rejection reason or already reviewed
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/Forbidden'
@@ -397,7 +835,13 @@ paths:
   /api/admin/users/{id}/role:
     patch:
       tags: [Admin]
-      summary: Update user role
+      summary: Change a user's role
+      description: |
+        Promotes a user to **ADMIN** or demotes back to **USER**.
+
+        An admin cannot demote themselves. Use with care — admins have full platform access.
+
+        **Who can use:** Admin only
       operationId: updateUserRole
       security:
         - bearerAuth: []
@@ -411,7 +855,7 @@ paths:
               $ref: '#/components/schemas/UpdateRoleRequest'
       responses:
         '200':
-          description: Role updated
+          description: User role updated
           content:
             application/json:
               schema:
@@ -420,9 +864,98 @@ paths:
                   user:
                     $ref: '#/components/schemas/PublicUser'
         '400':
+          description: Cannot demote yourself
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/Forbidden'
+
+  /api/admin/categories:
+    post:
+      tags: [Admin, Categories]
+      summary: Create a category
+      description: |
+        Creates a **parent category** or **subcategory**.
+
+        - Omit `parentId` to create a top-level category
+        - Set `parentId` to a parent category UUID to create a subcategory (max 2 levels)
+
+        Slug is auto-generated from the name if not provided.
+
+        **Who can use:** Admin only
+      operationId: createCategory
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCategoryRequest'
+      responses:
+        '201':
+          description: Category created
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Slug already exists
+          $ref: '#/components/responses/Conflict'
+
+  /api/admin/categories/{id}:
+    patch:
+      tags: [Admin, Categories]
+      summary: Update a category
+      description: |
+        Updates category name, slug, description, image, sort order, or active status.
+
+        Deactivate a category with `isActive: false` instead of deleting when it has listings.
+
+        **Who can use:** Admin only
+      operationId: updateCategory
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Category UUID
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCategoryRequest'
+      responses:
+        '200':
+          description: Category updated
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Admin, Categories]
+      summary: Deactivate a category
+      description: |
+        Soft-deactivates a category (`isActive: false`). It will no longer appear in public listings.
+
+        Fails if the category still has listings or subcategories — reassign or deactivate those first.
+
+        **Who can use:** Admin only
+      operationId: deleteCategory
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Category UUID
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Category deactivated
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Category has listings or subcategories
 
 components:
   securitySchemes:
@@ -430,7 +963,9 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Access token from login or register
+      description: |
+        JWT access token from `POST /api/auth/login` or `POST /api/auth/register`.
+        Enter as: `Bearer <accessToken>`
 
   parameters:
     VerificationId:
@@ -440,7 +975,7 @@ components:
       schema:
         type: string
         format: uuid
-      description: Seller verification request ID
+      description: Seller verification request UUID
     UserId:
       name: id
       in: path
@@ -448,11 +983,11 @@ components:
       schema:
         type: string
         format: uuid
-      description: User ID
+      description: Target user UUID
 
   responses:
     ValidationError:
-      description: Validation failed
+      description: Request body or query failed validation
       content:
         application/json:
           schema:
@@ -462,7 +997,7 @@ components:
             details:
               email: [Invalid email]
     Unauthorized:
-      description: Authentication required or invalid token
+      description: Missing, invalid, or expired access token
       content:
         application/json:
           schema:
@@ -470,7 +1005,7 @@ components:
           example:
             error: Authentication required
     Forbidden:
-      description: Insufficient permissions
+      description: Authenticated but lacking required role or verification
       content:
         application/json:
           schema:
@@ -478,7 +1013,7 @@ components:
           example:
             error: Insufficient permissions
     NotFound:
-      description: Resource not found
+      description: The requested resource does not exist
       content:
         application/json:
           schema:
@@ -486,7 +1021,7 @@ components:
           example:
             error: Not found
     Conflict:
-      description: Resource conflict
+      description: Resource already exists or operation conflicts with current state
       content:
         application/json:
           schema:
@@ -498,10 +1033,12 @@ components:
     UserRole:
       type: string
       enum: [USER, ADMIN]
+      description: USER = buyer/seller, ADMIN = platform manager
 
     VerificationType:
       type: string
       enum: [NONE, INDIVIDUAL_SELLER, BUSINESS_SELLER]
+      description: Seller verification level — NONE means cannot sell
 
     VerificationStatus:
       type: string
@@ -509,6 +1046,7 @@ components:
 
     PublicUser:
       type: object
+      description: Safe user profile (no password or sensitive data)
       properties:
         id:
           type: string
@@ -561,6 +1099,7 @@ components:
         password:
           type: string
           minLength: 8
+          description: Minimum 8 characters
           example: securePass123
         firstName:
           type: string
@@ -603,6 +1142,7 @@ components:
           type: string
           minLength: 6
           maxLength: 6
+          description: 6-digit OTP from email (dev logs show code in terminal)
           example: '708409'
 
     ResetPasswordRequest:
@@ -616,6 +1156,7 @@ components:
           type: string
           minLength: 6
           maxLength: 6
+          description: 6-digit OTP from forgot-password email
         newPassword:
           type: string
           minLength: 8
@@ -626,6 +1167,7 @@ components:
       properties:
         refreshToken:
           type: string
+          description: Long-lived token from login/register response
 
     UpdateRoleRequest:
       type: object
@@ -641,10 +1183,11 @@ components:
         requestedType:
           type: string
           enum: [INDIVIDUAL_SELLER, BUSINESS_SELLER]
+          description: Type of seller verification being requested
         documentUrl:
           type: string
           format: uri
-          description: URL to ID document or RDB certificate
+          description: URL to uploaded ID document or RDB certificate
         businessName:
           type: string
           minLength: 2
@@ -658,6 +1201,7 @@ components:
         status:
           type: string
           enum: [APPROVED, REJECTED, RESUBMIT_REQUIRED]
+          description: APPROVED grants seller status; others require rejectionReason
         rejectionReason:
           type: string
           minLength: 3
@@ -671,8 +1215,10 @@ components:
           $ref: '#/components/schemas/PublicUser'
         accessToken:
           type: string
+          description: Short-lived JWT (~15 min) — use in Authorization header
         refreshToken:
           type: string
+          description: Long-lived token (~7 days) — use to refresh access token
         message:
           type: string
 
@@ -682,6 +1228,7 @@ components:
         status:
           type: string
           enum: [ok, degraded]
+          description: ok = all systems healthy; degraded = database unreachable
         service:
           type: string
         database:
@@ -769,5 +1316,122 @@ components:
           type: boolean
         requests:
           type: array
+          description: Recent verification requests (newest first)
           items:
             $ref: '#/components/schemas/SellerVerification'
+
+    CreateCategoryRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: Display name (e.g. "Steel & Metal")
+          example: Steel & Metal
+        slug:
+          type: string
+          description: URL-friendly identifier — auto-generated from name if omitted
+          example: steel-metal
+        description:
+          type: string
+        imageUrl:
+          type: string
+          format: uri
+        parentId:
+          type: string
+          format: uuid
+          description: Parent category UUID — set to create a subcategory
+        sortOrder:
+          type: integer
+          description: Display order (lower = first)
+
+    CreateListingRequest:
+      type: object
+      required: [categoryId, title, description, price, condition, images]
+      properties:
+        categoryId:
+          type: string
+          format: uuid
+          description: Must be an active category
+        title:
+          type: string
+          example: Steel Rods (8mm)
+        description:
+          type: string
+          example: High quality steel rods ready for verified pickup in Kigali.
+        price:
+          type: number
+          example: 15000
+        currency:
+          type: string
+          default: RWF
+          example: RWF
+        condition:
+          type: string
+          enum: [NEW, LIKE_NEW, GOOD, FAIR, POOR]
+        city:
+          type: string
+          example: Kigali
+        country:
+          type: string
+          default: Rwanda
+        images:
+          type: array
+          minItems: 1
+          maxItems: 10
+          description: At least one image required; first image is primary if isPrimary not set
+          items:
+            type: object
+            required: [url]
+            properties:
+              url:
+                type: string
+                format: uri
+              altText:
+                type: string
+              sortOrder:
+                type: integer
+              isPrimary:
+                type: boolean
+
+    UpdateListingRequest:
+      type: object
+      description: All fields optional — only send what you want to change
+      properties:
+        categoryId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        price:
+          type: number
+        currency:
+          type: string
+        condition:
+          type: string
+          enum: [NEW, LIKE_NEW, GOOD, FAIR, POOR]
+        city:
+          type: string
+        country:
+          type: string
+        status:
+          type: string
+          enum: [DRAFT, REMOVED]
+          description: Sellers can only set DRAFT or REMOVED — use publish endpoint for ACTIVE
+        images:
+          type: array
+          items:
+            type: object
+            required: [url]
+            properties:
+              url:
+                type: string
+                format: uri
+              altText:
+                type: string
+              sortOrder:
+                type: integer
+              isPrimary:
+                type: boolean
