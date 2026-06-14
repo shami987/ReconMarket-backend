@@ -22,7 +22,7 @@ type SeedUser = {
 
 const DEV_USERS: SeedUser[] = [
   {
-    email: 'admin@reconmarket.dev',
+    email: 'admin@gmail.com',
     firstName: 'Admin',
     lastName: 'User',
     role: 'ADMIN',
@@ -152,7 +152,7 @@ async function main() {
   console.log('Development users ready:\n');
   console.log('  Password (all accounts):', DEV_PASSWORD);
   console.log('');
-  console.log('  admin@reconmarket.dev       — ADMIN');
+  console.log('  admin@gmail.com             — ADMIN');
   console.log('  buyer@reconmarket.dev       — USER, can buy only');
   console.log('  individual@reconmarket.dev  — USER, verified individual seller');
   console.log('  business@reconmarket.dev    — USER, verified business seller');

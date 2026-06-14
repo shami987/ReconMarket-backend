@@ -81,7 +81,7 @@ export const register = async (input: {
   return {
     user: toPublicUser(user),
     ...tokens,
-    message: 'Registration successful. Please verify your email.',
+    message: `Welcome to ReconMarket, ${user.firstName}! Please verify your email.`,
   };
 };
 
@@ -109,7 +109,15 @@ export const login = async (input: { email: string; password: string }) => {
 
   const tokens = await issueTokens(user as User);
 
+  const roleLabel =
+    user.role === 'ADMIN'
+      ? 'Admin'
+      : user.verificationType === 'INDIVIDUAL_SELLER' || user.verificationType === 'BUSINESS_SELLER'
+        ? 'Seller'
+        : 'Buyer';
+
   return {
+    message: `Welcome back, ${user.firstName}! You are logged in as ${roleLabel}.`,
     user: toPublicUser(publicUser),
     ...tokens,
   };
@@ -173,7 +181,15 @@ export const refreshSession = async (refreshToken: string) => {
 
   const tokens = await issueTokens(user as User);
 
+  const roleLabel =
+    user.role === 'ADMIN'
+      ? 'Admin'
+      : user.verificationType === 'INDIVIDUAL_SELLER' || user.verificationType === 'BUSINESS_SELLER'
+        ? 'Seller'
+        : 'Buyer';
+
   return {
+    message: `Session refreshed. Welcome, ${user.firstName}!`,
     user: toPublicUser(user),
     ...tokens,
   };

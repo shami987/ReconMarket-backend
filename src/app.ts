@@ -14,30 +14,10 @@ import verificationRouter from './routes/verification.routes';
 
 const app = express();
 
-const skipRequestLog = (url: string): boolean =>
-  url.startsWith('/api/docs') ||
-  url.startsWith('/api-docs') ||
-  url === '/api/docs.json';
-
 app.use(
   pinoHttp({
     logger,
-    autoLogging: {
-      ignore: (req) => skipRequestLog(req.url ?? ''),
-    },
-    customSuccessMessage: (req, res) =>
-      `${req.method} ${req.url} ${res.statusCode}`,
-    customErrorMessage: (req, res, err) =>
-      `${req.method} ${req.url} ${res.statusCode} - ${err.message}`,
-    serializers: {
-      req: (req) => ({
-        method: req.method,
-        url: req.url,
-      }),
-      res: (res) => ({
-        statusCode: res.statusCode,
-      }),
-    },
+    autoLogging: false,
   }),
 );
 app.use(cors({
