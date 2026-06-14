@@ -17,7 +17,7 @@ const issueTokens = async (user: User) => {
     data: {
       userId: user.id,
       tokenHash: '',
-      expiresAt: new Date(Date.now() + parseDurationToMs(env.JWT_EXPIRES_IN)),
+      expiresAt: new Date(Date.now() + parseDurationToMs(env.JWT_REFRESH_EXPIRES_IN)),
     },
   });
 

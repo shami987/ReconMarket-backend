@@ -94,7 +94,7 @@ export const handleGoogleCallback = async (code: string) => {
     data: {
       userId: fullUser.id,
       tokenHash: '',
-      expiresAt: new Date(Date.now() + parseDurationToMs(env.JWT_EXPIRES_IN)),
+      expiresAt: new Date(Date.now() + parseDurationToMs(env.JWT_REFRESH_EXPIRES_IN)),
     },
   });
 

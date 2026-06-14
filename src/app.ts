@@ -25,11 +25,12 @@ app.use(
     autoLogging: false,
   }),
 );
-app.use(cors({
-  origin: [env.CLIENT_URL, 'http://localhost:3000', 'http://localhost:3001'],
-  credentials: true,
-}));
-app.use(cors());
+app.use(
+  cors({
+    origin: [env.CLIENT_URL, 'http://localhost:3000', 'http://localhost:3001'],
+    credentials: true,
+  }),
+);
 
 app.use(
   '/api/webhooks',

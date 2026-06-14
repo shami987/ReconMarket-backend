@@ -1,4 +1,4 @@
-import { OtpPurpose } from '@prisma/client';
+import { OtpPurpose, Prisma } from '@prisma/client';
 import { env } from '../config/env';
 import { AppError } from '../errors/AppError';
 import { generateOtpCode } from '../lib/jwt';
@@ -6,6 +6,8 @@ import { compareToken, hashToken } from '../lib/password';
 import { logger } from '../lib/logger';
 import { sendMail } from '../lib/mail';
 import { prisma } from '../lib/prisma';
+
+const PICKUP_RELEASE_PURPOSE = 'PICKUP_RELEASE' as OtpPurpose;
 
 const invalidateExistingOtps = async (
   purpose: OtpPurpose,
@@ -18,7 +20,7 @@ const invalidateExistingOtps = async (
       ...(filters.email && { email: filters.email }),
       ...(filters.userId && { userId: filters.userId }),
       ...(filters.transactionId && { transactionId: filters.transactionId }),
-    },
+    } as Prisma.OtpWhereInput,
     data: { usedAt: new Date() },
   });
 };
@@ -100,7 +102,7 @@ export const createPickupReleaseOtp = async (params: {
   const codeHash = await hashToken(code);
   const expiresAt = new Date(Date.now() + env.PICKUP_OTP_EXPIRES_MINUTES * 60 * 1000);
 
-  await invalidateExistingOtps('PICKUP_RELEASE', { transactionId: params.transactionId });
+  await invalidateExistingOtps(PICKUP_RELEASE_PURPOSE, { transactionId: params.transactionId });
 
   await prisma.otp.create({
     data: {
@@ -108,9 +110,9 @@ export const createPickupReleaseOtp = async (params: {
       userId: params.buyerId,
       email: params.buyerEmail,
       codeHash,
-      purpose: 'PICKUP_RELEASE',
+      purpose: PICKUP_RELEASE_PURPOSE,
       expiresAt,
-    },
+    } as Prisma.OtpUncheckedCreateInput,
   });
 
   logger.info(
@@ -118,7 +120,7 @@ export const createPickupReleaseOtp = async (params: {
     `[DEV PICKUP OTP] Release code for transaction ${params.transactionId}: ${code}`,
   );
 
-  await sendOtpEmail(params.buyerEmail, 'PICKUP_RELEASE', code);
+  await sendOtpEmail(params.buyerEmail, PICKUP_RELEASE_PURPOSE, code);
 
   return code;
 };
@@ -127,8 +129,8 @@ export const getPickupReleaseOtpStatus = async (transactionId: string) => {
   const otp = await prisma.otp.findFirst({
     where: {
       transactionId,
-      purpose: 'PICKUP_RELEASE',
-    },
+      purpose: PICKUP_RELEASE_PURPOSE,
+    } as Prisma.OtpWhereInput,
     orderBy: { createdAt: 'desc' },
   });
 
@@ -159,10 +161,10 @@ export const verifyPickupReleaseOtp = async (params: {
   const otp = await prisma.otp.findFirst({
     where: {
       transactionId: params.transactionId,
-      purpose: 'PICKUP_RELEASE',
+      purpose: PICKUP_RELEASE_PURPOSE,
       usedAt: null,
       expiresAt: { gt: new Date() },
-    },
+    } as Prisma.OtpWhereInput,
     orderBy: { createdAt: 'desc' },
   });
 
@@ -196,7 +198,7 @@ export const sendOtpEmail = async (
   purpose: OtpPurpose,
   code: string,
 ): Promise<void> => {
-  const subjects: Record<OtpPurpose, string> = {
+  const subjects: Record<string, string> = {
     EMAIL_VERIFICATION: 'Verify your ReconMarket email',
     PHONE_VERIFICATION: 'Verify your ReconMarket phone',
     PASSWORD_RESET: 'Reset your ReconMarket password',
@@ -204,11 +206,13 @@ export const sendOtpEmail = async (
     PICKUP_RELEASE: 'Your ReconMarket pickup release code',
   };
 
+  const subject = subjects[purpose] ?? 'Your ReconMarket verification code';
+
   try {
     await sendMail({
       to: email,
-      subject: template.subject,
-      html: template.html,
+      subject,
+      html: `<p>Your ReconMarket code is: <strong>${code}</strong></p><p>This code expires soon. Do not share it with anyone except the intended recipient.</p>`,
     });
   } catch (err) {
     logger.error({ err, email, purpose }, 'Failed to send OTP email — user can still use the code from logs');

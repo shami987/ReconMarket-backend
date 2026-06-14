@@ -13,6 +13,7 @@
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
     "db:seed": "prisma db seed",
+    "postinstall": "prisma generate",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "prisma": {

@@ -9,4 +9,14 @@ cloudinary.config({
   secure: true,
 });
 
+export const verifyCloudinaryConnection = async (): Promise<boolean> => {
+  try {
+    await cloudinary.api.ping();
+    return true;
+  } catch (error) {
+    logger.error({ err: error }, 'Cloudinary connection failed');
+    return false;
+  }
+};
+
 export { cloudinary };
