@@ -3,6 +3,11 @@ import { ACTIVE_TRANSACTION_STATUSES, calculateTransactionAmounts } from '../lib
 import { AppError } from '../errors/AppError';
 import { prisma } from '../lib/prisma';
 import { initiateEscrowRefund } from './payment.service';
+import {
+  notifyTransactionCancelled,
+  notifyTransactionCreated,
+  notifyTransactionDisputed,
+} from './notification.triggers';
 import { serializeDecimal } from '../utils/serialize';
 import { publicUserSelect } from '../utils/userSelect';
 
@@ -204,6 +209,16 @@ export const createTransaction = async (
       },
     });
 
+    await notifyTransactionCreated(
+      {
+        buyerId,
+        sellerId: listing.sellerId,
+        transactionId: transaction.id,
+        listingTitle: listing.title,
+      },
+      tx,
+    );
+
     return transaction;
   });
 
@@ -299,7 +314,7 @@ export const cancelTransaction = async (
   const updated = await prisma.$transaction(async (tx) => {
     await restoreListingQuantity(tx, transaction.listingId, transaction.quantity);
 
-    return tx.transaction.update({
+    const cancelled = await tx.transaction.update({
       where: { id },
       data: {
         status: 'CANCELLED',
@@ -308,6 +323,19 @@ export const cancelTransaction = async (
       },
       include: transactionInclude,
     });
+
+    await notifyTransactionCancelled(
+      {
+        buyerId: cancelled.buyerId,
+        sellerId: cancelled.sellerId,
+        transactionId: cancelled.id,
+        listingTitle: cancelled.listing?.title ?? 'listing',
+        refunded: false,
+      },
+      tx,
+    );
+
+    return cancelled;
   });
 
   return {
@@ -324,7 +352,7 @@ export const disputeTransaction = async (
   const updated = await prisma.$transaction(async (tx) => {
     const transaction = await tx.transaction.findUnique({
       where: { id },
-      include: { payment: true },
+      include: { payment: true, listing: { select: { title: true } } },
     });
 
     if (!transaction) {
@@ -340,6 +368,16 @@ export const disputeTransaction = async (
     if (!transaction.payment || transaction.payment.escrowStatus !== 'HELD') {
       throw new AppError(400, 'Disputes require escrow funds to be held');
     }
+
+    await notifyTransactionDisputed(
+      {
+        buyerId: transaction.buyerId,
+        sellerId: transaction.sellerId,
+        transactionId: transaction.id,
+        listingTitle: transaction.listing.title,
+      },
+      tx,
+    );
 
     return tx.transaction.update({
       where: { id },

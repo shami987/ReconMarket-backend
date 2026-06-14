@@ -1,6 +1,7 @@
 import { MessageType, Prisma, User } from '@prisma/client';
 import { AppError } from '../errors/AppError';
 import { prisma } from '../lib/prisma';
+import { notifyNewMessage } from './notification.triggers';
 
 const chatParticipantSelect = {
   id: true,
@@ -310,6 +311,21 @@ export const sendMessage = async (
       where: { id: chatId },
       data: { lastMessageAt: now },
     });
+
+    const recipientId = chat.buyerId === user.id ? chat.sellerId : chat.buyerId;
+    const senderName = `${user.firstName} ${user.lastName}`.trim();
+
+    await notifyNewMessage(
+      {
+        recipientId,
+        chatId,
+        messageId: created.id,
+        senderName,
+        preview: input.type === 'IMAGE' ? 'Sent an image' : input.content,
+        listingId: chat.listingId,
+      },
+      tx,
+    );
 
     return created;
   });
