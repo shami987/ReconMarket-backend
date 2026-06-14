@@ -7,8 +7,10 @@ import {
   updateListingSchema,
 } from '../schemas/listing.schema';
 import * as listingService from '../services/listing.service';
+import { AppError } from '../errors/AppError';
 import { authenticate, optionalAuthenticate } from '../middleware/authenticate';
 import { requireVerifiedSeller } from '../middleware/authorize';
+import { uploadListingImages } from '../middleware/upload';
 import { validate } from '../middleware/validate';
 import { asyncHandler } from '../utils/asyncHandler';
 import { z } from 'zod';
@@ -102,6 +104,32 @@ router.patch(
   asyncHandler(async (req, res) => {
     const listing = await listingService.publishListing(req.params.id as string, req.user!);
     res.json({ listing, message: 'Listing published successfully' });
+  }),
+);
+
+router.post(
+  '/:id/images',
+  authenticate,
+  requireVerifiedSeller,
+  validate(listingIdParamSchema, 'params'),
+  uploadListingImages,
+  asyncHandler(async (req, res) => {
+    const files = req.files as Express.Multer.File[] | undefined;
+
+    if (!files?.length) {
+      throw new AppError(400, 'At least one image file is required (field name: images)');
+    }
+
+    const listing = await listingService.addListingImages(
+      req.params.id as string,
+      req.user!,
+      files,
+    );
+
+    res.status(201).json({
+      listing,
+      message: 'Images uploaded and linked to listing successfully',
+    });
   }),
 );
 

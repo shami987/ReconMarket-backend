@@ -1,6 +1,8 @@
 import { NextFunction, Request, Response } from 'express';
+import { MulterError } from 'multer';
 import { ZodError } from 'zod';
 import { env } from '../config/env';
+import { uploadConfig } from '../config/upload';
 import { AppError } from '../errors/AppError';
 import { logger } from '../lib/logger';
 
@@ -33,6 +35,25 @@ export const errorHandler = (
       error: 'Validation failed',
       details: err.flatten().fieldErrors,
     });
+    return;
+  }
+
+  if (err instanceof MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      res.status(400).json({
+        error: `File too large. Maximum size is ${env.MAX_UPLOAD_SIZE_MB}MB per image`,
+      });
+      return;
+    }
+
+    if (err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE') {
+      res.status(400).json({
+        error: `Too many files. Maximum ${uploadConfig.maxListingImages} images per request`,
+      });
+      return;
+    }
+
+    res.status(400).json({ error: err.message });
     return;
   }
 
