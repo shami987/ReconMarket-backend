@@ -45,6 +45,10 @@ tags:
     description: Browse, create, and manage construction material listings.
   - name: Uploads
     description: Upload listing images to Cloudinary.
+  - name: Transactions
+    description: Buy Now flow, escrow states, and pickup coordination.
+  - name: Payments
+    description: Mock mobile money payment intents, webhooks, and escrow.
   - name: Admin
     description: Admin-only — manage categories, verifications, and user roles.
 
@@ -851,6 +855,324 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/transactions:
+    post:
+      tags: [Transactions]
+      summary: Buy Now — create transaction
+      description: |
+        Creates a transaction from an **ACTIVE** listing and reserves stock.
+
+        - Deducts `quantity` from listing stock
+        - Sets listing to **RESERVED** when stock reaches zero
+        - Calculates `amount` (unit price × quantity) and `platformFee`
+        - Transaction starts in **PENDING** until payment is confirmed
+
+        **Who can use:** Authenticated buyers (not the listing owner)
+      operationId: createTransaction
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransactionRequest'
+      responses:
+        '201':
+          description: Transaction created
+        '400':
+          description: Invalid quantity or listing unavailable
+        '403':
+          description: Cannot buy own listing
+        '409':
+          description: Listing already reserved by another buyer
+
+  /api/transactions/me:
+    get:
+      tags: [Transactions]
+      summary: List my transactions
+      description: |
+        Returns paginated transactions where the authenticated user is buyer, seller, or both.
+
+        **Who can use:** Authenticated users
+      operationId: listMyTransactions
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, PAYMENT_CONFIRMED, IN_PROGRESS, COMPLETED, CANCELLED, DISPUTED, REFUNDED]
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [buyer, seller, all]
+            default: all
+      responses:
+        '200':
+          description: Paginated transactions
+
+  /api/transactions/{id}:
+    get:
+      tags: [Transactions]
+      summary: Get transaction details
+      description: Returns full transaction details for buyer, seller, or admin.
+      operationId: getTransactionById
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Transaction details
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/transactions/{id}/payments/intent:
+    post:
+      tags: [Transactions, Payments]
+      summary: Create payment intent (MTN MoMo / Airtel Money)
+      description: |
+        Creates a payment intent for a **PENDING** transaction.
+
+        Returns `externalReference` for checkout. Payment confirmation happens via webhook (`PAYMENT_CONFIRMED` + escrow **HELD**).
+
+        **Who can use:** Buyer only
+      operationId: createPaymentIntent
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentIntentRequest'
+      responses:
+        '201':
+          description: Payment intent created
+
+  /api/transactions/{id}/payment:
+    get:
+      tags: [Transactions, Payments]
+      summary: Get payment status
+      description: Returns payment and escrow status for a transaction.
+      operationId: getTransactionPayment
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Payment details including escrowStatus (NONE, HELD, RELEASED, REFUNDED)
+
+  /api/transactions/{id}/confirm-pickup:
+    post:
+      tags: [Transactions]
+      summary: Confirm pickup (buyer)
+      description: |
+        Buyer confirms item collection with a pickup photo.
+
+        Moves **PAYMENT_CONFIRMED → IN_PROGRESS** and generates a **release OTP** for the buyer to share with the seller.
+
+        Escrow remains **HELD** until seller verifies OTP.
+
+        **Who can use:** Buyer only
+      operationId: confirmPickup
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmPickupRequest'
+      responses:
+        '200':
+          description: Pickup confirmed, release OTP generated
+
+  /api/transactions/{id}/verify-release-otp:
+    post:
+      tags: [Transactions]
+      summary: Verify release OTP (seller)
+      description: |
+        Seller enters the OTP from the buyer after successful handover.
+
+        Releases escrow to seller and moves transaction **IN_PROGRESS → COMPLETED**.
+
+        **Who can use:** Seller only
+      operationId: verifyReleaseOtp
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyReleaseOtpRequest'
+      responses:
+        '200':
+          description: Escrow released, transaction completed
+
+  /api/payments/mock/simulate:
+    post:
+      tags: [Payments]
+      summary: Simulate mock payment (dev only)
+      description: |
+        Triggers the same logic as a `payment.succeeded` webhook for hackathon testing.
+
+        Disabled in production.
+
+        **Who can use:** Dev/testing (no auth required in local mock flow)
+      operationId: simulateMockPayment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [externalReference]
+              properties:
+                externalReference:
+                  type: string
+      responses:
+        '200':
+          description: Mock payment processed
+
+  /api/webhooks/payments/mock:
+    post:
+      tags: [Payments]
+      summary: Mock payment webhook
+      description: |
+        Receives mock MTN MoMo / Airtel Money webhook events.
+
+        **Events:** `payment.succeeded`, `payment.failed`, `refund.succeeded`
+
+        Requires header `x-webhook-signature` (HMAC-SHA256 of raw body using `MOCK_PAYMENT_WEBHOOK_SECRET`).
+
+        On `payment.succeeded`: transaction → **PAYMENT_CONFIRMED**, escrow → **HELD**.
+      operationId: mockPaymentWebhook
+      parameters:
+        - name: x-webhook-signature
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MockPaymentWebhookPayload'
+      responses:
+        '200':
+          description: Webhook processed
+
+  /api/transactions/{id}/cancel:
+    patch:
+      tags: [Transactions]
+      summary: Cancel transaction
+      description: |
+        Cancels a transaction and restores listing stock.
+
+        If escrow is **HELD**, initiates refund → transaction **REFUNDED**.
+
+        Allowed from **PENDING**, **PAYMENT_CONFIRMED**, or **IN_PROGRESS**.
+
+        **Who can use:** Buyer or seller
+      operationId: cancelTransaction
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelTransactionRequest'
+      responses:
+        '200':
+          description: Transaction cancelled
+
+  /api/transactions/{id}/dispute:
+    patch:
+      tags: [Transactions]
+      summary: Open dispute
+      description: |
+        Moves transaction to **DISPUTED** from **PAYMENT_CONFIRMED** or **IN_PROGRESS**.
+
+        **Who can use:** Buyer or seller
+      operationId: disputeTransaction
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DisputeTransactionRequest'
+      responses:
+        '200':
+          description: Transaction disputed
+
+  /api/transactions/{id}/refund:
+    patch:
+      tags: [Transactions, Payments]
+      summary: Refund disputed transaction
+      description: |
+        Refunds escrow to buyer for **DISPUTED** transactions.
+
+        Moves payment escrow **HELD → REFUNDED** and transaction → **REFUNDED**. Restores listing stock.
+
+        **Who can use:** Buyer or seller (dispute resolution)
+      operationId: refundTransaction
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  maxLength: 500
+      responses:
+        '200':
+          description: Escrow refunded to buyer
+
   /api/admin/verifications/pending:
     get:
       tags: [Admin]
@@ -1457,6 +1779,100 @@ components:
           type: integer
           description: File size in bytes
 
+    CreateTransactionRequest:
+      type: object
+      required: [listingId, pickupLocation, agreedPickupAt]
+      properties:
+        listingId:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+          minimum: 1
+          default: 1
+        pickupLocation:
+          type: string
+          minLength: 3
+          example: Kigali, Nyarugenge District, KN 3 Rd
+        agreedPickupAt:
+          type: string
+          format: date-time
+        notes:
+          type: string
+          maxLength: 1000
+
+    ConfirmPaymentRequest:
+      deprecated: true
+      description: Replaced by payment intent + webhook flow
+      type: object
+
+    CreatePaymentIntentRequest:
+      type: object
+      required: [provider]
+      properties:
+        provider:
+          type: string
+          enum: [MTN_MOMO, AIRTEL_MONEY]
+        payerPhone:
+          type: string
+          example: '0781234567'
+
+    ConfirmPickupRequest:
+      type: object
+      required: [pickupPhotoUrl]
+      properties:
+        pickupPhotoUrl:
+          type: string
+          format: uri
+
+    VerifyReleaseOtpRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          minLength: 6
+          maxLength: 6
+
+    MockPaymentWebhookPayload:
+      type: object
+      required: [event, externalReference]
+      properties:
+        event:
+          type: string
+          enum: [payment.succeeded, payment.failed, refund.succeeded]
+        externalReference:
+          type: string
+        providerReference:
+          type: string
+        amount:
+          type: number
+        currency:
+          type: string
+        paidAt:
+          type: string
+          format: date-time
+        failureReason:
+          type: string
+        refundReference:
+          type: string
+
+    CancelTransactionRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+
+    DisputeTransactionRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 1000
+
     CreateListingRequest:
       type: object
       required: [categoryId, title, description, price, condition, images]
@@ -1487,6 +1903,11 @@ components:
         country:
           type: string
           default: Rwanda
+        quantity:
+          type: integer
+          minimum: 1
+          default: 1
+          description: Available units for sale
         images:
           type: array
           minItems: 1
