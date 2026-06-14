@@ -16,6 +16,12 @@ const envSchema = z.object({
   JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
   OTP_EXPIRES_MINUTES: z.coerce.number().int().positive().default(10),
   APP_URL: z.string().url().default('http://localhost:3000'),
+  CLOUDINARY_CLOUD_NAME: z.string().min(1, 'CLOUDINARY_CLOUD_NAME is required'),
+  CLOUDINARY_API_KEY: z.string().min(1, 'CLOUDINARY_API_KEY is required'),
+  CLOUDINARY_API_SECRET: z.string().min(1, 'CLOUDINARY_API_SECRET is required'),
+  CLOUDINARY_FOLDER: z.string().default('reconmarket/listings'),
+  MAX_UPLOAD_SIZE_MB: z.coerce.number().positive().default(5),
+  MAX_LISTING_IMAGES: z.coerce.number().int().positive().max(20).default(10),
 });
 
 export type Env = z.infer<typeof envSchema>;

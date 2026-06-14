@@ -9,6 +9,7 @@ import authRouter from './routes/auth.routes';
 import categoryRouter from './routes/category.routes';
 import healthRouter from './routes/health';
 import listingRouter from './routes/listing.routes';
+import uploadRouter from './routes/upload.routes';
 import verificationRouter from './routes/verification.routes';
 
 const app = express();
@@ -52,6 +53,7 @@ app.use('/api/health', healthRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/categories', categoryRouter);
 app.use('/api/listings', listingRouter);
+app.use('/api/uploads', uploadRouter);
 app.use('/api/verification', verificationRouter);
 app.use('/api/admin', adminRouter);
 
@@ -59,4 +61,3 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 export default app;
-//

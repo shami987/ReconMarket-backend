@@ -43,6 +43,8 @@ tags:
     description: Browse construction material categories (Steel, Cement, Wood, etc.).
   - name: Listings
     description: Browse, create, and manage construction material listings.
+  - name: Uploads
+    description: Upload listing images to Cloudinary.
   - name: Admin
     description: Admin-only — manage categories, verifications, and user roles.
 
@@ -98,7 +100,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
         '409':
-          description: Email or phone already registered
+          description: Email already registered
           $ref: '#/components/responses/Conflict'
         '400':
           $ref: '#/components/responses/ValidationError'
@@ -492,6 +494,57 @@ paths:
           description: Category not found or inactive
           $ref: '#/components/responses/NotFound'
 
+  /api/uploads/listing-images:
+    post:
+      tags: [Uploads]
+      summary: Upload listing images (standalone)
+      description: |
+        Uploads image files to **Cloudinary** and returns secure public URLs.
+
+        Use the returned URLs in `POST /api/listings` or `PATCH /api/listings/{id}`, or upload directly to a listing via `POST /api/listings/{id}/images`.
+
+        **Validation:**
+        - Field name: `images` (multipart array)
+        - Allowed types: JPEG, PNG, WebP, GIF
+        - Max **5MB** per file, max **10** files per request
+
+        Requires Cloudinary credentials in server `.env`.
+
+        **Who can use:** Verified sellers only
+      operationId: uploadListingImages
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [images]
+              properties:
+                images:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        '201':
+          description: Images uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  images:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UploadedImage'
+                  message:
+                    type: string
+        '400':
+          description: Invalid file type, size, or missing files
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
   /api/listings:
     get:
       tags: [Listings]
@@ -562,7 +615,7 @@ paths:
 
         **Requirements:**
         - User must be a verified seller (`INDIVIDUAL_SELLER` or `BUSINESS_SELLER`)
-        - At least one image is required
+        - At least one image is required — upload files via `POST /api/uploads/listing-images` first, then pass the returned URLs in `images`
         - Category must exist and be active
 
         Default currency is **RWF** (Rwandan Franc).
@@ -714,6 +767,53 @@ paths:
       responses:
         '200':
           description: Listing removed from marketplace
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/listings/{id}/images:
+    post:
+      tags: [Listings, Uploads]
+      summary: Upload images to a listing
+      description: |
+        Uploads one or more image files and creates **ListingImage** records linked to the listing.
+
+        **Validation:**
+        - Field name: `images` (multipart array)
+        - Allowed types: JPEG, PNG, WebP, GIF
+        - Max **5MB** per file, max **10** images per listing (configurable via env)
+
+        The first image becomes primary if the listing has no primary image yet.
+
+        **Who can use:** Listing owner or admin (verified seller)
+      operationId: uploadListingImagesToListing
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Listing UUID
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [images]
+              properties:
+                images:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: Up to 10 image files
+      responses:
+        '201':
+          description: Images uploaded and linked to listing
+        '400':
+          description: Invalid file type, size, or count exceeded
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
@@ -1027,7 +1127,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
           example:
-            error: Email or phone already registered
+            error: Email already registered
 
   schemas:
     UserRole:
@@ -1107,11 +1207,6 @@ components:
         lastName:
           type: string
           example: Doe
-        phone:
-          type: string
-          minLength: 10
-          maxLength: 20
-          example: '+250788123456'
 
     LoginRequest:
       type: object
@@ -1345,6 +1440,23 @@ components:
           type: integer
           description: Display order (lower = first)
 
+    UploadedImage:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Public URL to access the uploaded file
+        filename:
+          type: string
+        originalName:
+          type: string
+        mimeType:
+          type: string
+        size:
+          type: integer
+          description: File size in bytes
+
     CreateListingRequest:
       type: object
       required: [categoryId, title, description, price, condition, images]
@@ -1379,7 +1491,7 @@ components:
           type: array
           minItems: 1
           maxItems: 10
-          description: At least one image required; first image is primary if isPrimary not set
+          description: At least one image required. Upload via POST /api/uploads/listing-images and use returned URLs.
           items:
             type: object
             required: [url]
