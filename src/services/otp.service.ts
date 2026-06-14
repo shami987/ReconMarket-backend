@@ -176,7 +176,6 @@ export const verifyPickupReleaseOtp = async (params: {
     throw new AppError(429, 'Too many attempts. Buyer must confirm pickup again.');
   }
 
-  const { compareToken } = await import('../lib/password');
   const isValid = await compareToken(params.code, otp.codeHash);
 
   if (!isValid) {
