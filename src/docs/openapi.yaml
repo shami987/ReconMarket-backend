@@ -51,6 +51,8 @@ tags:
     description: Mock mobile money payment intents, webhooks, and escrow.
   - name: Chats
     description: Buyer–seller messaging for negotiation, pickup, and disputes.
+  - name: Notifications
+    description: In-app notifications for messages, payments, pickup, verification, and transactions.
   - name: Admin
     description: Admin-only — manage categories, verifications, and user roles.
 
@@ -856,6 +858,67 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /api/notifications/unread-count:
+    get:
+      tags: [Notifications]
+      summary: Unread notification count
+      operationId: getNotificationUnreadCount
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Unread notification count
+
+  /api/notifications:
+    get:
+      tags: [Notifications]
+      summary: List notifications
+      description: Returns in-app notifications ordered by newest first. Supports filtering unread only or by type.
+      operationId: listNotifications
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: unreadOnly
+          in: query
+          schema: { type: string, enum: ['true', 'false'] }
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [TRANSACTION, MESSAGE, LISTING, REVIEW, VERIFICATION, SYSTEM]
+      responses:
+        '200':
+          description: Paginated notifications with unreadCount
+
+  /api/notifications/read-all:
+    patch:
+      tags: [Notifications]
+      summary: Mark all notifications as read
+      operationId: markAllNotificationsRead
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: All notifications marked read
+
+  /api/notifications/{id}/read:
+    patch:
+      tags: [Notifications]
+      summary: Mark notification as read
+      operationId: markNotificationRead
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Notification marked read
 
   /api/chats/unread-count:
     get:

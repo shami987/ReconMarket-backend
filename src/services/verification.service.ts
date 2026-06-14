@@ -1,6 +1,7 @@
 import { VerificationStatus, VerificationType } from '@prisma/client';
 import { AppError } from '../errors/AppError';
 import { prisma } from '../lib/prisma';
+import { notifyVerificationReview } from './notification.triggers';
 import { publicUserSelect, toPublicUser } from '../utils/userSelect';
 
 export const applyForSellerVerification = async (
@@ -137,18 +138,16 @@ export const reviewVerification = async (
       });
     }
 
-    await tx.notification.create({
-      data: {
+    await notifyVerificationReview(
+      {
         userId: verification.userId,
-        type: 'VERIFICATION',
-        title: `Seller verification ${input.status.toLowerCase().replace('_', ' ')}`,
-        body:
-          input.status === 'APPROVED'
-            ? `You are now verified as ${verification.requestedType.replace('_', ' ').toLowerCase()}.`
-            : input.rejectionReason ?? 'Your verification request was updated.',
-        data: { verificationId, status: input.status },
+        verificationId,
+        status: input.status,
+        requestedType: verification.requestedType,
+        rejectionReason: input.rejectionReason,
       },
-    });
+      tx,
+    );
 
     return record;
   });

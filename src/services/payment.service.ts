@@ -9,6 +9,10 @@ import {
 import { prisma } from '../lib/prisma';
 import { serializeDecimal } from '../utils/serialize';
 import { MockPaymentWebhookInput } from '../schemas/payment.schema';
+import {
+  notifyPaymentEscrowHeld,
+  notifyTransactionRefunded,
+} from './notification.triggers';
 
 const serializePayment = (
   payment: {
@@ -280,7 +284,20 @@ export const handleMockPaymentWebhook = async (input: MockPaymentWebhookInput) =
 
       const transaction = await tx.transaction.findUniqueOrThrow({
         where: { id: payment.transactionId },
+        include: { listing: { select: { title: true } } },
       });
+
+      await notifyPaymentEscrowHeld(
+        {
+          buyerId: transaction.buyerId,
+          sellerId: transaction.sellerId,
+          transactionId: transaction.id,
+          listingTitle: transaction.listing.title,
+          amount: serializeDecimal(updatedPayment.amount),
+          currency: updatedPayment.currency,
+        },
+        tx,
+      );
 
       return { payment: updatedPayment, transaction };
     });
@@ -311,7 +328,19 @@ export const handleMockPaymentWebhook = async (input: MockPaymentWebhookInput) =
       const updatedPayment = await tx.payment.findUniqueOrThrow({ where: { id: payment.id } });
       const transaction = await tx.transaction.findUniqueOrThrow({
         where: { id: payment.transactionId },
+        include: { listing: { select: { title: true } } },
       });
+
+      await notifyTransactionRefunded(
+        {
+          buyerId: transaction.buyerId,
+          sellerId: transaction.sellerId,
+          transactionId: transaction.id,
+          listingTitle: transaction.listing.title,
+        },
+        tx,
+      );
+
       return { payment: updatedPayment, transaction };
     });
 

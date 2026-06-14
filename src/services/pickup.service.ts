@@ -7,6 +7,10 @@ import {
   getPickupReleaseOtpStatus,
   verifyPickupReleaseOtp,
 } from './otp.service';
+import {
+  notifyPickupOtpReady,
+  notifyTransactionCompleted,
+} from './notification.triggers';
 import { releaseEscrowFunds } from './payment.service';
 import { publicUserSelect } from '../utils/userSelect';
 import { serializeDecimal } from '../utils/serialize';
@@ -118,7 +122,11 @@ export const confirmPickup = async (
 ) => {
   const transaction = await prisma.transaction.findUnique({
     where: { id },
-    include: { payment: true, buyer: { select: { email: true } } },
+    include: {
+      payment: true,
+      buyer: { select: { email: true } },
+      listing: { select: { title: true } },
+    },
   });
 
   if (!transaction) {
@@ -172,6 +180,13 @@ export const confirmPickup = async (
   });
 
   const otpStatus = await getPickupReleaseOtpStatus(id);
+
+  await notifyPickupOtpReady({
+    buyerId: updated.buyerId,
+    sellerId: updated.sellerId,
+    transactionId: updated.id,
+    listingTitle: transaction.listing!.title,
+  });
 
   return {
     transaction: serializeTransactionWithPayment(updated),
@@ -243,6 +258,14 @@ export const verifyReleaseOtp = async (id: string, user: User, code: string) => 
       where: { id },
       data: { pickupOtpVerifiedAt: new Date() },
     });
+
+    const completed = await getTransactionOrThrow(released.id);
+    await notifyTransactionCompleted({
+      buyerId: completed.buyerId,
+      sellerId: completed.sellerId,
+      transactionId: completed.id,
+      listingTitle: completed.listing?.title ?? 'your listing',
+    });
   }
 
   const current = await getTransactionOrThrow(released.id);
@@ -259,7 +282,10 @@ export const verifyReleaseOtp = async (id: string, user: User, code: string) => 
 export const regenerateReleaseOtp = async (id: string, user: User) => {
   const transaction = await prisma.transaction.findUnique({
     where: { id },
-    include: { buyer: { select: { email: true } } },
+    include: {
+      buyer: { select: { email: true } },
+      listing: { select: { title: true } },
+    },
   });
 
   if (!transaction) {
@@ -294,6 +320,14 @@ export const regenerateReleaseOtp = async (id: string, user: User) => {
   });
 
   const nextOtpStatus = await getPickupReleaseOtpStatus(id);
+
+  await notifyPickupOtpReady({
+    buyerId: updated.buyerId,
+    sellerId: updated.sellerId,
+    transactionId: updated.id,
+    listingTitle: transaction.listing.title,
+    regenerated: true,
+  });
 
   return {
     transaction: serializeTransactionWithPayment(updated),
