@@ -2,8 +2,9 @@ import { OtpPurpose } from '@prisma/client';
 import { env } from '../config/env';
 import { AppError } from '../errors/AppError';
 import { generateOtpCode } from '../lib/jwt';
-import { hashToken } from '../lib/password';
+import { compareToken, hashToken } from '../lib/password';
 import { logger } from '../lib/logger';
+import { sendMail } from '../lib/mail';
 import { prisma } from '../lib/prisma';
 
 const invalidateExistingOtps = async (
@@ -69,7 +70,6 @@ export const verifyOtp = async (params: {
     throw new AppError(429, 'Too many attempts. Request a new code.');
   }
 
-  const { compareToken } = await import('../lib/password');
   const isValid = await compareToken(params.code, otp.codeHash);
 
   if (!isValid) {
@@ -88,20 +88,80 @@ export const verifyOtp = async (params: {
   return { userId: otp.userId ?? undefined };
 };
 
+const otpEmailTemplates: Record<OtpPurpose, (code: string) => { subject: string; html: string }> = {
+  EMAIL_VERIFICATION: (code) => ({
+    subject: 'Verify your ReconMarket email',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <h2 style="color: #1a1a2e;">Email Verification</h2>
+        <p>Use the following code to verify your email address:</p>
+        <div style="background: #f4f4f8; border-radius: 8px; padding: 16px; text-align: center; margin: 24px 0;">
+          <span style="font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #1a1a2e;">${code}</span>
+        </div>
+        <p style="color: #666; font-size: 14px;">This code expires in ${env.OTP_EXPIRES_MINUTES} minutes.</p>
+        <p style="color: #666; font-size: 14px;">If you didn't request this, please ignore this email.</p>
+      </div>
+    `,
+  }),
+  PHONE_VERIFICATION: (code) => ({
+    subject: 'Verify your ReconMarket phone',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <h2 style="color: #1a1a2e;">Phone Verification</h2>
+        <p>Use the following code to verify your phone number:</p>
+        <div style="background: #f4f4f8; border-radius: 8px; padding: 16px; text-align: center; margin: 24px 0;">
+          <span style="font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #1a1a2e;">${code}</span>
+        </div>
+        <p style="color: #666; font-size: 14px;">This code expires in ${env.OTP_EXPIRES_MINUTES} minutes.</p>
+        <p style="color: #666; font-size: 14px;">If you didn't request this, please ignore this email.</p>
+      </div>
+    `,
+  }),
+  PASSWORD_RESET: (code) => ({
+    subject: 'Reset your ReconMarket password',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <h2 style="color: #1a1a2e;">Password Reset</h2>
+        <p>You requested a password reset. Use the following code:</p>
+        <div style="background: #f4f4f8; border-radius: 8px; padding: 16px; text-align: center; margin: 24px 0;">
+          <span style="font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #1a1a2e;">${code}</span>
+        </div>
+        <p style="color: #666; font-size: 14px;">This code expires in ${env.OTP_EXPIRES_MINUTES} minutes.</p>
+        <p style="color: #999; font-size: 13px;">If you didn't request a password reset, please secure your account.</p>
+      </div>
+    `,
+  }),
+  LOGIN: (code) => ({
+    subject: 'Your ReconMarket login code',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <h2 style="color: #1a1a2e;">Login Code</h2>
+        <p>Use the following code to complete your login:</p>
+        <div style="background: #f4f4f8; border-radius: 8px; padding: 16px; text-align: center; margin: 24px 0;">
+          <span style="font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #1a1a2e;">${code}</span>
+        </div>
+        <p style="color: #666; font-size: 14px;">This code expires in ${env.OTP_EXPIRES_MINUTES} minutes.</p>
+        <p style="color: #666; font-size: 14px;">If you didn't attempt to log in, please ignore this email.</p>
+      </div>
+    `,
+  }),
+};
+
 export const sendOtpEmail = async (
   email: string,
   purpose: OtpPurpose,
   code: string,
 ): Promise<void> => {
-  const subjects: Record<OtpPurpose, string> = {
-    EMAIL_VERIFICATION: 'Verify your ReconMarket email',
-    PHONE_VERIFICATION: 'Verify your ReconMarket phone',
-    PASSWORD_RESET: 'Reset your ReconMarket password',
-    LOGIN: 'Your ReconMarket login code',
-  };
+  const template = otpEmailTemplates[purpose](code);
 
-  logger.info(
-    { email, purpose, subject: subjects[purpose] },
-    `[DEV EMAIL] OTP for ${email}: ${code}`,
-  );
+  try {
+    await sendMail({
+      to: email,
+      subject: template.subject,
+      html: template.html,
+    });
+  } catch (err) {
+    logger.error({ err, email, purpose }, 'Failed to send OTP email — user can still use the code from logs');
+    logger.info({ email, purpose, code }, `[DEV FALLBACK] OTP code for ${email}: ${code}`);
+  }
 };

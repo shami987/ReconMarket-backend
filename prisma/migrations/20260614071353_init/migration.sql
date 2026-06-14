@@ -1,8 +1,8 @@
 -- CreateEnum
-CREATE TYPE "UserRole" AS ENUM ('BUYER', 'SELLER', 'ADMIN');
+CREATE TYPE "UserRole" AS ENUM ('USER', 'ADMIN');
 
 -- CreateEnum
-CREATE TYPE "AccountType" AS ENUM ('INDIVIDUAL', 'BUSINESS');
+CREATE TYPE "VerificationType" AS ENUM ('NONE', 'INDIVIDUAL_SELLER', 'BUSINESS_SELLER');
 
 -- CreateEnum
 CREATE TYPE "ListingCondition" AS ENUM ('NEW', 'LIKE_NEW', 'GOOD', 'FAIR', 'POOR');
@@ -37,8 +37,8 @@ CREATE TABLE "users" (
     "firstName" TEXT NOT NULL,
     "lastName" TEXT NOT NULL,
     "avatarUrl" TEXT,
-    "role" "UserRole" NOT NULL DEFAULT 'BUYER',
-    "accountType" "AccountType" NOT NULL DEFAULT 'INDIVIDUAL',
+    "role" "UserRole" NOT NULL DEFAULT 'USER',
+    "verificationType" "VerificationType" NOT NULL DEFAULT 'NONE',
     "isEmailVerified" BOOLEAN NOT NULL DEFAULT false,
     "isPhoneVerified" BOOLEAN NOT NULL DEFAULT false,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
@@ -184,13 +184,12 @@ CREATE TABLE "reviews" (
 );
 
 -- CreateTable
-CREATE TABLE "business_verifications" (
+CREATE TABLE "seller_verifications" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
-    "businessName" TEXT NOT NULL,
-    "registrationNumber" TEXT,
-    "taxId" TEXT,
-    "documentUrls" JSONB NOT NULL,
+    "requestedType" "VerificationType" NOT NULL,
+    "documentUrl" TEXT NOT NULL,
+    "businessName" TEXT,
     "status" "VerificationStatus" NOT NULL DEFAULT 'PENDING',
     "rejectionReason" TEXT,
     "reviewedById" TEXT,
@@ -199,7 +198,19 @@ CREATE TABLE "business_verifications" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "business_verifications_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "seller_verifications_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "refresh_tokens" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "tokenHash" TEXT NOT NULL,
+    "expiresAt" TIMESTAMP(3) NOT NULL,
+    "revokedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "refresh_tokens_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -229,7 +240,7 @@ CREATE UNIQUE INDEX "users_phone_key" ON "users"("phone");
 CREATE INDEX "users_role_idx" ON "users"("role");
 
 -- CreateIndex
-CREATE INDEX "users_accountType_idx" ON "users"("accountType");
+CREATE INDEX "users_verificationType_idx" ON "users"("verificationType");
 
 -- CreateIndex
 CREATE INDEX "users_deletedAt_idx" ON "users"("deletedAt");
@@ -316,10 +327,19 @@ CREATE INDEX "reviews_rating_idx" ON "reviews"("rating");
 CREATE UNIQUE INDEX "reviews_transactionId_reviewerId_key" ON "reviews"("transactionId", "reviewerId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "business_verifications_userId_key" ON "business_verifications"("userId");
+CREATE INDEX "seller_verifications_userId_idx" ON "seller_verifications"("userId");
 
 -- CreateIndex
-CREATE INDEX "business_verifications_status_idx" ON "business_verifications"("status");
+CREATE INDEX "seller_verifications_status_idx" ON "seller_verifications"("status");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "refresh_tokens_tokenHash_key" ON "refresh_tokens"("tokenHash");
+
+-- CreateIndex
+CREATE INDEX "refresh_tokens_userId_idx" ON "refresh_tokens"("userId");
+
+-- CreateIndex
+CREATE INDEX "refresh_tokens_expiresAt_idx" ON "refresh_tokens"("expiresAt");
 
 -- CreateIndex
 CREATE INDEX "otps_email_purpose_idx" ON "otps"("email", "purpose");
@@ -388,10 +408,13 @@ ALTER TABLE "reviews" ADD CONSTRAINT "reviews_reviewerId_fkey" FOREIGN KEY ("rev
 ALTER TABLE "reviews" ADD CONSTRAINT "reviews_revieweeId_fkey" FOREIGN KEY ("revieweeId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "business_verifications" ADD CONSTRAINT "business_verifications_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "seller_verifications" ADD CONSTRAINT "seller_verifications_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "business_verifications" ADD CONSTRAINT "business_verifications_reviewedById_fkey" FOREIGN KEY ("reviewedById") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "seller_verifications" ADD CONSTRAINT "seller_verifications_reviewedById_fkey" FOREIGN KEY ("reviewedById") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "refresh_tokens" ADD CONSTRAINT "refresh_tokens_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "otps" ADD CONSTRAINT "otps_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;

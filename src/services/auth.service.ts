@@ -6,7 +6,7 @@ import {
   signRefreshToken,
   verifyRefreshToken,
 } from '../lib/jwt';
-import { comparePassword, hashPassword, hashToken } from '../lib/password';
+import { comparePassword, compareToken, hashPassword, hashToken } from '../lib/password';
 import { prisma } from '../lib/prisma';
 import { publicUserSelect, toPublicUser } from '../utils/userSelect';
 import { createOtp, sendOtpEmail, verifyOtp } from './otp.service';
@@ -17,7 +17,7 @@ const issueTokens = async (user: User) => {
     data: {
       userId: user.id,
       tokenHash: '',
-      expiresAt: new Date(Date.now() + parseDurationToMs(env.JWT_REFRESH_EXPIRES_IN)),
+      expiresAt: new Date(Date.now() + parseDurationToMs(env.JWT_EXPIRES_IN)),
     },
   });
 
@@ -123,9 +123,7 @@ export const logout = async (refreshToken: string) => {
     });
 
     if (record && !record.revokedAt) {
-      const matches = await import('../lib/password').then((m) =>
-        m.compareToken(refreshToken, record.tokenHash),
-      );
+      const matches = await compareToken(refreshToken, record.tokenHash);
       if (matches) {
         await prisma.refreshToken.update({
           where: { id: record.id },
@@ -154,7 +152,6 @@ export const refreshSession = async (refreshToken: string) => {
     throw new AppError(401, 'Invalid or expired refresh token');
   }
 
-  const { compareToken } = await import('../lib/password');
   const matches = await compareToken(refreshToken, record.tokenHash);
   if (!matches) {
     throw new AppError(401, 'Invalid or expired refresh token');

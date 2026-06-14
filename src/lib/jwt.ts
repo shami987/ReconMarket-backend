@@ -23,24 +23,24 @@ export const signAccessToken = (user: User): string => {
     verificationType: user.verificationType,
   };
 
-  return jwt.sign(payload, env.JWT_ACCESS_SECRET, {
-    expiresIn: env.JWT_ACCESS_EXPIRES_IN as jwt.SignOptions['expiresIn'],
+  return jwt.sign(payload, env.JWT_SECRET, {
+    expiresIn: env.JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'],
   });
 };
 
 export const signRefreshToken = (userId: string, tokenId: string): string => {
   const payload: RefreshTokenPayload = { sub: userId, jti: tokenId };
 
-  return jwt.sign(payload, env.JWT_REFRESH_SECRET, {
-    expiresIn: env.JWT_REFRESH_EXPIRES_IN as jwt.SignOptions['expiresIn'],
+  return jwt.sign(payload, env.JWT_SECRET, {
+    expiresIn: env.JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'],
   });
 };
 
 export const verifyAccessToken = (token: string): AccessTokenPayload =>
-  jwt.verify(token, env.JWT_ACCESS_SECRET) as AccessTokenPayload;
+  jwt.verify(token, env.JWT_SECRET) as AccessTokenPayload;
 
 export const verifyRefreshToken = (token: string): RefreshTokenPayload =>
-  jwt.verify(token, env.JWT_REFRESH_SECRET) as RefreshTokenPayload;
+  jwt.verify(token, env.JWT_SECRET) as RefreshTokenPayload;
 
 export const generateOtpCode = (): string =>
   crypto.randomInt(100000, 999999).toString();

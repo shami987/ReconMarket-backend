@@ -1,6 +1,7 @@
 import cors from 'cors';
 import express from 'express';
 import pinoHttp from 'pino-http';
+import { env } from './config/env';
 import { swaggerSpec, swaggerUi, swaggerUiHandler } from './config/swagger';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { logger } from './lib/logger';
@@ -39,7 +40,10 @@ app.use(
     },
   }),
 );
-app.use(cors());
+app.use(cors({
+  origin: [env.CLIENT_URL, 'http://localhost:3000', 'http://localhost:3001'],
+  credentials: true,
+}));
 app.use(express.json());
 
 app.get('/api-docs', (_req, res) => res.redirect(301, '/api/docs'));
