@@ -55,3 +55,39 @@ const runMulter =
 export const uploadListingImages = runMulter(
   listingImagesMulter.array('images', uploadConfig.maxListingImages),
 );
+
+const pickupPhotoMulter = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: uploadConfig.maxFileSizeBytes,
+    files: 1,
+  },
+  fileFilter: (_req, file, cb) => {
+    if (!isAllowedImage(file)) {
+      cb(
+        new AppError(
+          400,
+          `Invalid file type. Allowed: ${ALLOWED_IMAGE_EXTENSIONS.join(', ')}`,
+        ),
+      );
+      return;
+    }
+
+    cb(null, true);
+  },
+});
+
+export const uploadPickupPhoto = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void => {
+  pickupPhotoMulter.single('pickupPhoto')(req, res, (err: unknown) => {
+    if (err) {
+      next(err);
+      return;
+    }
+
+    next();
+  });
+};

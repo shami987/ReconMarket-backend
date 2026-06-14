@@ -17,6 +17,7 @@ const envSchema = z.object({
   CLOUDINARY_API_KEY: z.string().min(1, 'CLOUDINARY_API_KEY is required'),
   CLOUDINARY_API_SECRET: z.string().min(1, 'CLOUDINARY_API_SECRET is required'),
   CLOUDINARY_FOLDER: z.string().default('reconmarket/listings'),
+  CLOUDINARY_PICKUP_FOLDER: z.string().default('reconmarket/pickups'),
   MAX_UPLOAD_SIZE_MB: z.coerce.number().positive().default(5),
   MAX_LISTING_IMAGES: z.coerce.number().int().positive().max(20).default(10),
   PLATFORM_FEE_PERCENT: z.coerce.number().min(0).max(100).default(5),

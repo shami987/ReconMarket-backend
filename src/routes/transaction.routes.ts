@@ -12,9 +12,13 @@ import {
   verifyReleaseOtpSchema,
 } from '../schemas/payment.schema';
 import * as paymentService from '../services/payment.service';
+import * as pickupService from '../services/pickup.service';
 import * as transactionService from '../services/transaction.service';
+import { uploadPickupPhotoToCloudinary } from '../services/upload.service';
+import { AppError } from '../errors/AppError';
 import { authenticate } from '../middleware/authenticate';
 import { canBuy } from '../middleware/authorize';
+import { uploadPickupPhoto } from '../middleware/upload';
 import { validate } from '../middleware/validate';
 import { asyncHandler } from '../utils/asyncHandler';
 import { z } from 'zod';
@@ -89,17 +93,54 @@ router.get(
   }),
 );
 
+router.get(
+  '/:id/pickup',
+  authenticate,
+  validate(transactionIdParamSchema, 'params'),
+  asyncHandler(async (req, res) => {
+    const result = await pickupService.getPickupStatus(req.params.id as string, req.user!);
+    res.json(result);
+  }),
+);
+
 router.post(
   '/:id/confirm-pickup',
   authenticate,
   validate(transactionIdParamSchema, 'params'),
-  validate(confirmPickupSchema),
+  uploadPickupPhoto,
   asyncHandler(async (req, res) => {
-    const result = await transactionService.confirmPickup(
+    let pickupPhotoUrl = req.body.pickupPhotoUrl as string | undefined;
+    const file = req.file as Express.Multer.File | undefined;
+
+    if (file) {
+      const uploaded = await uploadPickupPhotoToCloudinary(file);
+      pickupPhotoUrl = uploaded.url;
+    }
+
+    if (!pickupPhotoUrl) {
+      throw new AppError(
+        400,
+        'Pickup photo is required. Upload multipart field pickupPhoto or provide pickupPhotoUrl.',
+      );
+    }
+
+    confirmPickupSchema.parse({ pickupPhotoUrl });
+
+    const result = await pickupService.confirmPickup(
       req.params.id as string,
       req.user!,
-      req.body,
+      pickupPhotoUrl,
     );
+    res.json(result);
+  }),
+);
+
+router.post(
+  '/:id/regenerate-release-otp',
+  authenticate,
+  validate(transactionIdParamSchema, 'params'),
+  asyncHandler(async (req, res) => {
+    const result = await pickupService.regenerateReleaseOtp(req.params.id as string, req.user!);
     res.json(result);
   }),
 );
@@ -110,7 +151,7 @@ router.post(
   validate(transactionIdParamSchema, 'params'),
   validate(verifyReleaseOtpSchema),
   asyncHandler(async (req, res) => {
-    const result = await transactionService.verifyReleaseOtp(
+    const result = await pickupService.verifyReleaseOtp(
       req.params.id as string,
       req.user!,
       req.body.code,

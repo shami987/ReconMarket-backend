@@ -5,11 +5,14 @@ import { AppError } from '../errors/AppError';
 import { cloudinary } from '../lib/cloudinary';
 import { UploadedImage } from '../lib/upload';
 
-const uploadBuffer = (buffer: Buffer): Promise<UploadApiResponse> =>
+const uploadBuffer = (
+  buffer: Buffer,
+  folder: string,
+): Promise<UploadApiResponse> =>
   new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
       {
-        folder: env.CLOUDINARY_FOLDER,
+        folder,
         resource_type: 'image',
         public_id: randomUUID(),
       },
@@ -37,22 +40,21 @@ const toUploadedImage = (
   size: file.size,
 });
 
-export const uploadListingImagesToCloudinary = async (
+export const uploadImagesToCloudinary = async (
   files: Express.Multer.File[],
+  folder: string,
 ): Promise<UploadedImage[]> => {
   try {
-    const results = await Promise.all(
+    return Promise.all(
       files.map(async (file) => {
         if (!file.buffer) {
           throw new AppError(500, 'Uploaded file buffer is missing');
         }
 
-        const result = await uploadBuffer(file.buffer);
+        const result = await uploadBuffer(file.buffer, folder);
         return toUploadedImage(result, file);
       }),
     );
-
-    return results;
   } catch (error) {
     if (error instanceof AppError) {
       throw error;
@@ -60,4 +62,15 @@ export const uploadListingImagesToCloudinary = async (
 
     throw new AppError(502, 'Failed to upload images to Cloudinary');
   }
+};
+
+export const uploadListingImagesToCloudinary = async (
+  files: Express.Multer.File[],
+): Promise<UploadedImage[]> => uploadImagesToCloudinary(files, env.CLOUDINARY_FOLDER);
+
+export const uploadPickupPhotoToCloudinary = async (
+  file: Express.Multer.File,
+): Promise<UploadedImage> => {
+  const [uploaded] = await uploadImagesToCloudinary([file], env.CLOUDINARY_PICKUP_FOLDER);
+  return uploaded;
 };
