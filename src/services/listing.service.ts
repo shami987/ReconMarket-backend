@@ -192,6 +192,7 @@ export const createListing = async (
     condition: string;
     city?: string;
     country?: string;
+    quantity?: number;
     expiresAt?: Date;
     images: Array<{
       url: string;
@@ -225,6 +226,7 @@ export const createListing = async (
       condition: input.condition as Prisma.ListingCreateInput['condition'],
       city: input.city,
       country: input.country,
+      quantity: input.quantity ?? 1,
       expiresAt: input.expiresAt,
       status: 'DRAFT',
       images: { create: images },
@@ -247,6 +249,7 @@ export const updateListing = async (
     condition: string;
     city: string;
     country: string;
+    quantity: number;
     expiresAt: Date;
     status: ListingStatus;
     images: Array<{
@@ -301,6 +304,7 @@ export const updateListing = async (
         condition: data.condition as Prisma.ListingUpdateInput['condition'],
         city: data.city,
         country: data.country,
+        quantity: data.quantity,
         expiresAt: data.expiresAt,
         status: data.status,
       },
@@ -325,6 +329,10 @@ export const publishListing = async (id: string, user: User) => {
 
   if (listing.images.length === 0) {
     throw new AppError(400, 'Add at least one image before publishing');
+  }
+
+  if (listing.quantity < 1) {
+    throw new AppError(400, 'Listing quantity must be at least 1 before publishing');
   }
 
   if (!['DRAFT', 'REMOVED'].includes(listing.status)) {

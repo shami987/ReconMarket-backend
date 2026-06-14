@@ -27,6 +27,7 @@ export const createListingSchema = z.object({
   condition: listingConditionSchema,
   city: z.string().min(2).max(100).optional(),
   country: z.string().min(2).max(100).default('Rwanda'),
+  quantity: z.coerce.number().int().positive().default(1),
   expiresAt: z.coerce.date().optional(),
   images: z.array(listingImageSchema).min(1).max(10),
 });

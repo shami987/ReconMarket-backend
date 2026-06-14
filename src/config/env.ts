@@ -22,6 +22,12 @@ const envSchema = z.object({
   CLOUDINARY_FOLDER: z.string().default('reconmarket/listings'),
   MAX_UPLOAD_SIZE_MB: z.coerce.number().positive().default(5),
   MAX_LISTING_IMAGES: z.coerce.number().int().positive().max(20).default(10),
+  PLATFORM_FEE_PERCENT: z.coerce.number().min(0).max(100).default(5),
+  PAYMENT_PROVIDER: z.enum(['mock']).default('mock'),
+  MOCK_PAYMENT_WEBHOOK_SECRET: z
+    .string()
+    .min(16, 'MOCK_PAYMENT_WEBHOOK_SECRET must be at least 16 characters'),
+  PICKUP_OTP_EXPIRES_MINUTES: z.coerce.number().int().positive().default(30),
 });
 
 export type Env = z.infer<typeof envSchema>;
