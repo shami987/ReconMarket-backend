@@ -11,36 +11,43 @@ const envSchema = z.object({
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
     .default('info'),
   APP_URL: z.string().url().default('http://localhost:5000'),
+  CLIENT_URL: z.string().url().default('http://localhost:3000'),
+
+  JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
+  JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET must be at least 32 characters'),
+  JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
+  JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
+
   OTP_EXPIRES_MINUTES: z.coerce.number().int().positive().default(10),
+  PICKUP_OTP_EXPIRES_MINUTES: z.coerce.number().int().positive().default(30),
 
-  // JWT
-  JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
-  JWT_EXPIRES_IN: z.string().default('7d'),
+  EMAIL_HOST: z.string().default('smtp.gmail.com'),
+  EMAIL_PORT: z.coerce.number().int().positive().default(587),
+  EMAIL_USER: z.string().default(''),
+  EMAIL_PASS: z.string().default(''),
+  EMAIL_FROM: z.string().default('ReconMarket <noreply@reconmarket.com>'),
 
-  // Upstash Redis
-  UPSTASH_REDIS_REST_URL: z.string().url('UPSTASH_REDIS_REST_URL must be a valid URL'),
-  UPSTASH_REDIS_REST_TOKEN: z.string().min(1, 'UPSTASH_REDIS_REST_TOKEN is required'),
+  SENTRY_DSN: z.string().optional().default(''),
 
-  // Cloudinary
+  UPSTASH_REDIS_REST_URL: z.string().optional().default(''),
+  UPSTASH_REDIS_REST_TOKEN: z.string().optional().default(''),
+
+  GOOGLE_CLIENT_ID: z.string().default(''),
+  GOOGLE_CLIENT_SECRET: z.string().default(''),
+  GOOGLE_CALLBACK_URL: z.string().url().default('http://localhost:5000/api/auth/google/callback'),
+
   CLOUDINARY_CLOUD_NAME: z.string().min(1, 'CLOUDINARY_CLOUD_NAME is required'),
   CLOUDINARY_API_KEY: z.string().min(1, 'CLOUDINARY_API_KEY is required'),
   CLOUDINARY_API_SECRET: z.string().min(1, 'CLOUDINARY_API_SECRET is required'),
-
-  // Email (SMTP)
-  EMAIL_HOST: z.string().min(1, 'EMAIL_HOST is required'),
-  EMAIL_PORT: z.coerce.number().int().positive().default(587),
-  EMAIL_USER: z.string().min(1, 'EMAIL_USER is required'),
-  EMAIL_PASS: z.string().min(1, 'EMAIL_PASS is required'),
-  EMAIL_FROM: z.string().min(1, 'EMAIL_FROM is required'),
-
-  // Google OAuth
-  GOOGLE_CLIENT_ID: z.string().min(1, 'GOOGLE_CLIENT_ID is required'),
-  GOOGLE_CLIENT_SECRET: z.string().min(1, 'GOOGLE_CLIENT_SECRET is required'),
-  GOOGLE_CALLBACK_URL: z.string().url().default('http://localhost:5000/api/auth/google/callback'),
-  CLIENT_URL: z.string().url().default('http://localhost:3000'),
-
-  // Sentry
-  SENTRY_DSN: z.string().url().optional(),
+  CLOUDINARY_FOLDER: z.string().default('reconmarket/listings'),
+  CLOUDINARY_PICKUP_FOLDER: z.string().default('reconmarket/pickups'),
+  MAX_UPLOAD_SIZE_MB: z.coerce.number().positive().default(5),
+  MAX_LISTING_IMAGES: z.coerce.number().int().positive().max(20).default(10),
+  PLATFORM_FEE_PERCENT: z.coerce.number().min(0).max(100).default(5),
+  PAYMENT_PROVIDER: z.enum(['mock']).default('mock'),
+  MOCK_PAYMENT_WEBHOOK_SECRET: z
+    .string()
+    .min(16, 'MOCK_PAYMENT_WEBHOOK_SECRET must be at least 16 characters'),
 });
 
 export type Env = z.infer<typeof envSchema>;

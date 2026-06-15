@@ -43,6 +43,16 @@ tags:
     description: Browse construction material categories (Steel, Cement, Wood, etc.).
   - name: Listings
     description: Browse, create, and manage construction material listings.
+  - name: Uploads
+    description: Upload listing images to Cloudinary.
+  - name: Transactions
+    description: Buy Now flow, escrow states, and pickup coordination.
+  - name: Payments
+    description: Mock mobile money payment intents, webhooks, and escrow.
+  - name: Chats
+    description: Buyer–seller messaging for negotiation, pickup, and disputes.
+  - name: Notifications
+    description: In-app notifications for messages, payments, pickup, verification, and transactions.
   - name: Admin
     description: Admin-only — manage categories, verifications, and user roles.
 
@@ -98,7 +108,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
         '409':
-          description: Email or phone already registered
+          description: Email already registered
           $ref: '#/components/responses/Conflict'
         '400':
           $ref: '#/components/responses/ValidationError'
@@ -492,6 +502,57 @@ paths:
           description: Category not found or inactive
           $ref: '#/components/responses/NotFound'
 
+  /api/uploads/listing-images:
+    post:
+      tags: [Uploads]
+      summary: Upload listing images (standalone)
+      description: |
+        Uploads image files to **Cloudinary** and returns secure public URLs.
+
+        Use the returned URLs in `POST /api/listings` or `PATCH /api/listings/{id}`, or upload directly to a listing via `POST /api/listings/{id}/images`.
+
+        **Validation:**
+        - Field name: `images` (multipart array)
+        - Allowed types: JPEG, PNG, WebP, GIF
+        - Max **5MB** per file, max **10** files per request
+
+        Requires Cloudinary credentials in server `.env`.
+
+        **Who can use:** Verified sellers only
+      operationId: uploadListingImages
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [images]
+              properties:
+                images:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        '201':
+          description: Images uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  images:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UploadedImage'
+                  message:
+                    type: string
+        '400':
+          description: Invalid file type, size, or missing files
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
   /api/listings:
     get:
       tags: [Listings]
@@ -562,7 +623,7 @@ paths:
 
         **Requirements:**
         - User must be a verified seller (`INDIVIDUAL_SELLER` or `BUSINESS_SELLER`)
-        - At least one image is required
+        - At least one image is required — upload files via `POST /api/uploads/listing-images` first, then pass the returned URLs in `images`
         - Category must exist and be active
 
         Default currency is **RWF** (Rwandan Franc).
@@ -719,6 +780,53 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/listings/{id}/images:
+    post:
+      tags: [Listings, Uploads]
+      summary: Upload images to a listing
+      description: |
+        Uploads one or more image files and creates **ListingImage** records linked to the listing.
+
+        **Validation:**
+        - Field name: `images` (multipart array)
+        - Allowed types: JPEG, PNG, WebP, GIF
+        - Max **5MB** per file, max **10** images per listing (configurable via env)
+
+        The first image becomes primary if the listing has no primary image yet.
+
+        **Who can use:** Listing owner or admin (verified seller)
+      operationId: uploadListingImagesToListing
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Listing UUID
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [images]
+              properties:
+                images:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: Up to 10 image files
+      responses:
+        '201':
+          description: Images uploaded and linked to listing
+        '400':
+          description: Invalid file type, size, or count exceeded
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /api/listings/{id}/publish:
     patch:
       tags: [Listings]
@@ -750,6 +858,592 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /api/notifications/unread-count:
+    get:
+      tags: [Notifications]
+      summary: Unread notification count
+      operationId: getNotificationUnreadCount
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Unread notification count
+
+  /api/notifications:
+    get:
+      tags: [Notifications]
+      summary: List notifications
+      description: Returns in-app notifications ordered by newest first. Supports filtering unread only or by type.
+      operationId: listNotifications
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: unreadOnly
+          in: query
+          schema: { type: string, enum: ['true', 'false'] }
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [TRANSACTION, MESSAGE, LISTING, REVIEW, VERIFICATION, SYSTEM]
+      responses:
+        '200':
+          description: Paginated notifications with unreadCount
+
+  /api/notifications/read-all:
+    patch:
+      tags: [Notifications]
+      summary: Mark all notifications as read
+      operationId: markAllNotificationsRead
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: All notifications marked read
+
+  /api/notifications/{id}/read:
+    patch:
+      tags: [Notifications]
+      summary: Mark notification as read
+      operationId: markNotificationRead
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Notification marked read
+
+  /api/chats/unread-count:
+    get:
+      tags: [Chats]
+      summary: Total unread messages
+      description: Returns unread message count across all chats for polling badges.
+      operationId: getChatUnreadCount
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Unread count
+
+  /api/chats:
+    get:
+      tags: [Chats]
+      summary: List my chats
+      description: |
+        Returns chats where the authenticated user is buyer or seller,
+        ordered by most recent message. Includes last message preview and unread count.
+      operationId: listChats
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Paginated chat list
+    post:
+      tags: [Chats]
+      summary: Start or resume chat
+      description: |
+        Creates a chat for a **listing + buyer/seller pair**, or returns the existing one.
+
+        - Buyer: send `listingId` only
+        - Seller: send `listingId` + `buyerId`
+        - Optional `initialMessage` and `transactionId` link
+
+      operationId: startChat
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartChatRequest'
+      responses:
+        '201':
+          description: Chat created or retrieved
+
+  /api/chats/{id}:
+    get:
+      tags: [Chats]
+      summary: Get chat details
+      operationId: getChatById
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Chat with participant and listing context
+
+  /api/chats/{id}/messages:
+    get:
+      tags: [Chats]
+      summary: List messages (supports polling)
+      description: |
+        Returns messages in a chat. Use `since` (ISO datetime) to poll for new messages only.
+
+        Example polling: `GET /api/chats/{id}/messages?since=2026-06-14T10:00:00.000Z&limit=50`
+      operationId: listChatMessages
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: since
+          in: query
+          description: Return messages created after this timestamp (polling)
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Messages list
+    post:
+      tags: [Chats]
+      summary: Send message
+      operationId: sendChatMessage
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '201':
+          description: Message sent
+
+  /api/chats/{id}/read:
+    patch:
+      tags: [Chats]
+      summary: Mark chat as read
+      description: Marks all messages from the other participant as read.
+      operationId: markChatAsRead
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Messages marked read
+
+  /api/chats/{id}/messages/{messageId}/read:
+    patch:
+      tags: [Chats]
+      summary: Mark single message as read
+      operationId: markMessageAsRead
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: messageId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Message marked read
+
+  /api/transactions:
+    post:
+      tags: [Transactions]
+      summary: Buy Now — create transaction
+      description: |
+        Creates a transaction from an **ACTIVE** listing and reserves stock.
+
+        - Deducts `quantity` from listing stock
+        - Sets listing to **RESERVED** when stock reaches zero
+        - Calculates `amount` (unit price × quantity) and `platformFee`
+        - Transaction starts in **PENDING** until payment is confirmed
+
+        **Who can use:** Authenticated buyers (not the listing owner)
+      operationId: createTransaction
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransactionRequest'
+      responses:
+        '201':
+          description: Transaction created
+        '400':
+          description: Invalid quantity or listing unavailable
+        '403':
+          description: Cannot buy own listing
+        '409':
+          description: Listing already reserved by another buyer
+
+  /api/transactions/me:
+    get:
+      tags: [Transactions]
+      summary: List my transactions
+      description: |
+        Returns paginated transactions where the authenticated user is buyer, seller, or both.
+
+        **Who can use:** Authenticated users
+      operationId: listMyTransactions
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, PAYMENT_CONFIRMED, IN_PROGRESS, COMPLETED, CANCELLED, DISPUTED, REFUNDED]
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [buyer, seller, all]
+            default: all
+      responses:
+        '200':
+          description: Paginated transactions
+
+  /api/transactions/{id}:
+    get:
+      tags: [Transactions]
+      summary: Get transaction details
+      description: Returns full transaction details for buyer, seller, or admin.
+      operationId: getTransactionById
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Transaction details
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/transactions/{id}/payments/intent:
+    post:
+      tags: [Transactions, Payments]
+      summary: Create payment intent (MTN MoMo / Airtel Money)
+      description: |
+        Creates a payment intent for a **PENDING** transaction.
+
+        Returns `externalReference` for checkout. Payment confirmation happens via webhook (`PAYMENT_CONFIRMED` + escrow **HELD**).
+
+        **Who can use:** Buyer only
+      operationId: createPaymentIntent
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentIntentRequest'
+      responses:
+        '201':
+          description: Payment intent created
+
+  /api/transactions/{id}/payment:
+    get:
+      tags: [Transactions, Payments]
+      summary: Get payment status
+      description: Returns payment and escrow status for a transaction.
+      operationId: getTransactionPayment
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Payment details including escrowStatus (NONE, HELD, RELEASED, REFUNDED)
+
+  /api/transactions/{id}/pickup:
+    get:
+      tags: [Transactions]
+      summary: Get pickup status
+      description: |
+        Returns pickup confirmation state, photo URL, OTP status, and whether funds can be released.
+
+        Does **not** expose the release OTP code (buyer receives it via email / dev logs).
+
+        **Who can use:** Buyer or seller
+      operationId: getPickupStatus
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Pickup and OTP status
+
+  /api/transactions/{id}/confirm-pickup:
+    post:
+      tags: [Transactions]
+      summary: Confirm pickup (buyer)
+      description: |
+        Buyer confirms item collection and uploads **pickup photo evidence** to Cloudinary.
+
+        Moves **PAYMENT_CONFIRMED → IN_PROGRESS** and generates a **transaction-scoped release OTP**
+        (separate from auth OTPs, tied to `transactionId`).
+
+        Escrow remains **HELD** until seller verifies OTP. Idempotent if pickup was already confirmed.
+
+        **Upload options:**
+        - `multipart/form-data` with field `pickupPhoto` (recommended)
+        - JSON with `pickupPhotoUrl` if photo was uploaded elsewhere
+
+        **Who can use:** Buyer only
+      operationId: confirmPickup
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                pickupPhoto:
+                  type: string
+                  format: binary
+                  description: Photo taken at pickup (JPEG, PNG, WebP, GIF)
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmPickupRequest'
+      responses:
+        '200':
+          description: Pickup confirmed, release OTP generated
+
+  /api/transactions/{id}/regenerate-release-otp:
+    post:
+      tags: [Transactions]
+      summary: Regenerate release OTP (buyer)
+      description: |
+        Generates a new release OTP when the previous one expired.
+
+        Only available when pickup is confirmed and funds have not been released.
+
+        **Who can use:** Buyer only
+      operationId: regenerateReleaseOtp
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: New release OTP generated
+
+  /api/transactions/{id}/verify-release-otp:
+    post:
+      tags: [Transactions]
+      summary: Verify release OTP (seller)
+      description: |
+        Seller enters the OTP from the buyer after successful handover.
+
+        **Idempotent:** repeated calls after release return `alreadyReleased: true`.
+
+        Releases escrow to seller and moves transaction **IN_PROGRESS → COMPLETED**.
+
+        **Who can use:** Seller only
+      operationId: verifyReleaseOtp
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyReleaseOtpRequest'
+      responses:
+        '200':
+          description: Escrow released, transaction completed
+
+  /api/payments/mock/simulate:
+    post:
+      tags: [Payments]
+      summary: Simulate mock payment (dev only)
+      description: |
+        Triggers the same logic as a `payment.succeeded` webhook for hackathon testing.
+
+        Disabled in production.
+
+        **Who can use:** Dev/testing (no auth required in local mock flow)
+      operationId: simulateMockPayment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [externalReference]
+              properties:
+                externalReference:
+                  type: string
+      responses:
+        '200':
+          description: Mock payment processed
+
+  /api/webhooks/payments/mock:
+    post:
+      tags: [Payments]
+      summary: Mock payment webhook
+      description: |
+        Receives mock MTN MoMo / Airtel Money webhook events.
+
+        **Events:** `payment.succeeded`, `payment.failed`, `refund.succeeded`
+
+        Requires header `x-webhook-signature` (HMAC-SHA256 of raw body using `MOCK_PAYMENT_WEBHOOK_SECRET`).
+
+        On `payment.succeeded`: transaction → **PAYMENT_CONFIRMED**, escrow → **HELD**.
+      operationId: mockPaymentWebhook
+      parameters:
+        - name: x-webhook-signature
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MockPaymentWebhookPayload'
+      responses:
+        '200':
+          description: Webhook processed
+
+  /api/transactions/{id}/cancel:
+    patch:
+      tags: [Transactions]
+      summary: Cancel transaction
+      description: |
+        Cancels a transaction and restores listing stock.
+
+        If escrow is **HELD**, initiates refund → transaction **REFUNDED**.
+
+        Allowed from **PENDING**, **PAYMENT_CONFIRMED**, or **IN_PROGRESS**.
+
+        **Who can use:** Buyer or seller
+      operationId: cancelTransaction
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelTransactionRequest'
+      responses:
+        '200':
+          description: Transaction cancelled
+
+  /api/transactions/{id}/dispute:
+    patch:
+      tags: [Transactions]
+      summary: Open dispute
+      description: |
+        Moves transaction to **DISPUTED** from **PAYMENT_CONFIRMED** or **IN_PROGRESS**.
+
+        **Who can use:** Buyer or seller
+      operationId: disputeTransaction
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DisputeTransactionRequest'
+      responses:
+        '200':
+          description: Transaction disputed
+
+  /api/transactions/{id}/refund:
+    patch:
+      tags: [Transactions, Payments]
+      summary: Refund disputed transaction
+      description: |
+        Refunds escrow to buyer for **DISPUTED** transactions.
+
+        Moves payment escrow **HELD → REFUNDED** and transaction → **REFUNDED**. Restores listing stock.
+
+        **Who can use:** Buyer or seller (dispute resolution)
+      operationId: refundTransaction
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  maxLength: 500
+      responses:
+        '200':
+          description: Escrow refunded to buyer
 
   /api/admin/verifications/pending:
     get:
@@ -1027,7 +1721,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
           example:
-            error: Email or phone already registered
+            error: Email already registered
 
   schemas:
     UserRole:
@@ -1107,11 +1801,6 @@ components:
         lastName:
           type: string
           example: Doe
-        phone:
-          type: string
-          minLength: 10
-          maxLength: 20
-          example: '+250788123456'
 
     LoginRequest:
       type: object
@@ -1345,6 +2034,148 @@ components:
           type: integer
           description: Display order (lower = first)
 
+    UploadedImage:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Public URL to access the uploaded file
+        filename:
+          type: string
+        originalName:
+          type: string
+        mimeType:
+          type: string
+        size:
+          type: integer
+          description: File size in bytes
+
+    StartChatRequest:
+      type: object
+      required: [listingId]
+      properties:
+        listingId:
+          type: string
+          format: uuid
+        buyerId:
+          type: string
+          format: uuid
+          description: Required when the seller starts the chat
+        transactionId:
+          type: string
+          format: uuid
+        initialMessage:
+          type: string
+          maxLength: 5000
+
+    SendMessageRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 5000
+        type:
+          type: string
+          enum: [TEXT, IMAGE]
+          default: TEXT
+
+    CreateTransactionRequest:
+      type: object
+      required: [listingId, pickupLocation, agreedPickupAt]
+      properties:
+        listingId:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+          minimum: 1
+          default: 1
+        pickupLocation:
+          type: string
+          minLength: 3
+          example: Kigali, Nyarugenge District, KN 3 Rd
+        agreedPickupAt:
+          type: string
+          format: date-time
+        notes:
+          type: string
+          maxLength: 1000
+
+    ConfirmPaymentRequest:
+      deprecated: true
+      description: Replaced by payment intent + webhook flow
+      type: object
+
+    CreatePaymentIntentRequest:
+      type: object
+      required: [provider]
+      properties:
+        provider:
+          type: string
+          enum: [MTN_MOMO, AIRTEL_MONEY]
+        payerPhone:
+          type: string
+          example: '0781234567'
+
+    ConfirmPickupRequest:
+      type: object
+      required: [pickupPhotoUrl]
+      properties:
+        pickupPhotoUrl:
+          type: string
+          format: uri
+
+    VerifyReleaseOtpRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          minLength: 6
+          maxLength: 6
+
+    MockPaymentWebhookPayload:
+      type: object
+      required: [event, externalReference]
+      properties:
+        event:
+          type: string
+          enum: [payment.succeeded, payment.failed, refund.succeeded]
+        externalReference:
+          type: string
+        providerReference:
+          type: string
+        amount:
+          type: number
+        currency:
+          type: string
+        paidAt:
+          type: string
+          format: date-time
+        failureReason:
+          type: string
+        refundReference:
+          type: string
+
+    CancelTransactionRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+
+    DisputeTransactionRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 1000
+
     CreateListingRequest:
       type: object
       required: [categoryId, title, description, price, condition, images]
@@ -1375,11 +2206,16 @@ components:
         country:
           type: string
           default: Rwanda
+        quantity:
+          type: integer
+          minimum: 1
+          default: 1
+          description: Available units for sale
         images:
           type: array
           minItems: 1
           maxItems: 10
-          description: At least one image required; first image is primary if isPrimary not set
+          description: At least one image required. Upload via POST /api/uploads/listing-images and use returned URLs.
           items:
             type: object
             required: [url]

@@ -79,6 +79,28 @@ enum OtpPurpose {
   PHONE_VERIFICATION
   PASSWORD_RESET
   LOGIN
+  PICKUP_RELEASE
+}
+
+enum PaymentProvider {
+  MTN_MOMO
+  AIRTEL_MONEY
+  MOCK
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+enum EscrowStatus {
+  NONE
+  HELD
+  RELEASED
+  REFUNDED
 }
 
 // ─── Users ───────────────────────────────────────────────────────────────────
@@ -154,6 +176,7 @@ model Listing {
   description String
   price       Decimal          @db.Decimal(12, 2)
   currency    String           @default("USD")
+  quantity    Int              @default(1)
   condition   ListingCondition
   status      ListingStatus    @default(DRAFT)
   city        String?
@@ -205,12 +228,21 @@ model Transaction {
   listingId        String
   buyerId          String
   sellerId         String
+  quantity         Int               @default(1)
+  unitPrice        Decimal           @db.Decimal(12, 2)
   amount           Decimal           @db.Decimal(12, 2)
   currency         String            @default("USD")
   platformFee      Decimal           @default(0) @db.Decimal(12, 2)
   status           TransactionStatus @default(PENDING)
+  pickupLocation   String?
+  agreedPickupAt   DateTime?
   paymentMethod    String?
   paymentReference String?
+  pickupConfirmedAt DateTime?
+  pickupPhotoUrl    String?
+  releaseOtpGeneratedAt DateTime?
+  pickupOtpVerifiedAt   DateTime?
+  fundsReleasedAt   DateTime?
   notes            String?
   completedAt      DateTime?
   cancelledAt      DateTime?
@@ -222,6 +254,8 @@ model Transaction {
   seller  User     @relation("SellerTransactions", fields: [sellerId], references: [id], onDelete: Restrict)
   chats   Chat[]
   reviews Review[]
+  payment Payment?
+  pickupOtps Otp[]
 
   @@index([buyerId])
   @@index([sellerId])
@@ -229,6 +263,33 @@ model Transaction {
   @@index([status])
   @@index([createdAt])
   @@map("transactions")
+}
+
+model Payment {
+  id                String          @id @default(uuid())
+  transactionId     String          @unique
+  provider          PaymentProvider @default(MOCK)
+  payerPhone        String?
+  amount            Decimal         @db.Decimal(12, 2)
+  currency          String
+  status            PaymentStatus   @default(PENDING)
+  escrowStatus      EscrowStatus    @default(NONE)
+  externalReference String          @unique
+  providerReference String?
+  paidAt            DateTime?
+  refundedAt        DateTime?
+  releasedAt        DateTime?
+  refundReference   String?
+  metadata          Json?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([escrowStatus])
+  @@index([externalReference])
+  @@map("payments")
 }
 
 // ─── Chats ───────────────────────────────────────────────────────────────────
@@ -367,23 +428,26 @@ model RefreshToken {
 // ─── OTPs ────────────────────────────────────────────────────────────────────
 
 model Otp {
-  id          String     @id @default(uuid())
-  userId      String?
-  email       String?
-  phone       String?
-  codeHash    String
-  purpose     OtpPurpose
-  attempts    Int        @default(0)
-  maxAttempts Int        @default(5)
-  expiresAt   DateTime
-  usedAt      DateTime?
-  createdAt   DateTime   @default(now())
+  id            String     @id @default(uuid())
+  userId        String?
+  email         String?
+  phone         String?
+  transactionId String?
+  codeHash      String
+  purpose       OtpPurpose
+  attempts      Int        @default(0)
+  maxAttempts   Int        @default(5)
+  expiresAt     DateTime
+  usedAt        DateTime?
+  createdAt     DateTime   @default(now())
 
-  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
   @@index([email, purpose])
   @@index([phone, purpose])
   @@index([userId, purpose])
+  @@index([transactionId, purpose])
   @@index([expiresAt])
   @@map("otps")
 }

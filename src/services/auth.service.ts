@@ -17,7 +17,7 @@ const issueTokens = async (user: User) => {
     data: {
       userId: user.id,
       tokenHash: '',
-      expiresAt: new Date(Date.now() + parseDurationToMs(env.JWT_EXPIRES_IN)),
+      expiresAt: new Date(Date.now() + parseDurationToMs(env.JWT_REFRESH_EXPIRES_IN)),
     },
   });
 
@@ -40,20 +40,16 @@ export const register = async (input: {
   password: string;
   firstName: string;
   lastName: string;
-  phone?: string;
 }) => {
   const existing = await prisma.user.findFirst({
     where: {
-      OR: [
-        { email: input.email },
-        ...(input.phone ? [{ phone: input.phone }] : []),
-      ],
+      email: input.email,
       deletedAt: null,
     },
   });
 
   if (existing) {
-    throw new AppError(409, 'Email or phone already registered');
+    throw new AppError(409, 'Email already registered');
   }
 
   const passwordHash = await hashPassword(input.password);
@@ -61,7 +57,6 @@ export const register = async (input: {
   const user = await prisma.user.create({
     data: {
       email: input.email,
-      phone: input.phone,
       passwordHash,
       firstName: input.firstName,
       lastName: input.lastName,

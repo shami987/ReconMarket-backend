@@ -1,5 +1,8 @@
 import { ListingStatus, Prisma, User } from '@prisma/client';
+import { uploadConfig } from '../config/upload';
 import { AppError } from '../errors/AppError';
+import { toListingImageInputs } from '../lib/upload';
+import { uploadListingImagesToCloudinary } from './upload.service';
 import { prisma } from '../lib/prisma';
 import { publicUserSelect } from '../utils/userSelect';
 import { serializeDecimal } from '../utils/serialize';
@@ -189,6 +192,7 @@ export const createListing = async (
     condition: string;
     city?: string;
     country?: string;
+    quantity?: number;
     expiresAt?: Date;
     images: Array<{
       url: string;
@@ -222,6 +226,7 @@ export const createListing = async (
       condition: input.condition as Prisma.ListingCreateInput['condition'],
       city: input.city,
       country: input.country,
+      quantity: input.quantity ?? 1,
       expiresAt: input.expiresAt,
       status: 'DRAFT',
       images: { create: images },
@@ -244,6 +249,7 @@ export const updateListing = async (
     condition: string;
     city: string;
     country: string;
+    quantity: number;
     expiresAt: Date;
     status: ListingStatus;
     images: Array<{
@@ -298,6 +304,7 @@ export const updateListing = async (
         condition: data.condition as Prisma.ListingUpdateInput['condition'],
         city: data.city,
         country: data.country,
+        quantity: data.quantity,
         expiresAt: data.expiresAt,
         status: data.status,
       },
@@ -324,6 +331,10 @@ export const publishListing = async (id: string, user: User) => {
     throw new AppError(400, 'Add at least one image before publishing');
   }
 
+  if (listing.quantity < 1) {
+    throw new AppError(400, 'Listing quantity must be at least 1 before publishing');
+  }
+
   if (!['DRAFT', 'REMOVED'].includes(listing.status)) {
     throw new AppError(400, 'Only draft or removed listings can be published');
   }
@@ -335,6 +346,64 @@ export const publishListing = async (id: string, user: User) => {
       publishedAt: new Date(),
     },
     include: listingInclude,
+  });
+
+  return serializeListing(updated);
+};
+
+export const addListingImages = async (
+  id: string,
+  user: User,
+  files: Express.Multer.File[],
+) => {
+  const listing = await prisma.listing.findFirst({
+    where: { id, deletedAt: null },
+    include: { images: { orderBy: { sortOrder: 'asc' } } },
+  });
+
+  if (!listing) {
+    throw new AppError(404, 'Listing not found');
+  }
+
+  assertCanManageListing(listing, user);
+
+  const currentCount = listing.images.length;
+
+  if (currentCount + files.length > uploadConfig.maxListingImages) {
+    throw new AppError(
+      400,
+      `Listing cannot have more than ${uploadConfig.maxListingImages} images (${currentCount} existing, ${files.length} uploaded)`,
+    );
+  }
+
+  const uploads = await uploadListingImagesToCloudinary(files);
+  const hasPrimary = listing.images.some((image) => image.isPrimary);
+  const imageInputs = toListingImageInputs(uploads, {
+    startSortOrder: currentCount,
+    markFirstAsPrimary: !hasPrimary && currentCount === 0,
+  });
+
+  const updated = await prisma.$transaction(async (tx) => {
+    if (imageInputs.some((image) => image.isPrimary)) {
+      await tx.listingImage.updateMany({
+        where: { listingId: id },
+        data: { isPrimary: false },
+      });
+    }
+
+    await tx.listingImage.createMany({
+      data: imageInputs.map((image) => ({
+        listingId: id,
+        url: image.url,
+        sortOrder: image.sortOrder,
+        isPrimary: image.isPrimary,
+      })),
+    });
+
+    return tx.listing.findUniqueOrThrow({
+      where: { id },
+      include: listingInclude,
+    });
   });
 
   return serializeListing(updated);
