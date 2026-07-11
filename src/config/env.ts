@@ -52,4 +52,19 @@ const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>;
 
-export const env: Env = envSchema.parse(process.env);
+const DEV_MOCK_WEBHOOK_SECRET = 'dev-mock-payment-webhook-secret';
+
+/** Map legacy JWT_SECRET / JWT_EXPIRES_IN to the split access + refresh config. */
+const normalizedEnv = {
+  ...process.env,
+  JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET ?? process.env.JWT_SECRET,
+  JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET ?? process.env.JWT_SECRET,
+  JWT_ACCESS_EXPIRES_IN: process.env.JWT_ACCESS_EXPIRES_IN ?? '15m',
+  JWT_REFRESH_EXPIRES_IN:
+    process.env.JWT_REFRESH_EXPIRES_IN ?? process.env.JWT_EXPIRES_IN ?? '7d',
+  MOCK_PAYMENT_WEBHOOK_SECRET:
+    process.env.MOCK_PAYMENT_WEBHOOK_SECRET ??
+    (process.env.NODE_ENV === 'production' ? undefined : DEV_MOCK_WEBHOOK_SECRET),
+};
+
+export const env: Env = envSchema.parse(normalizedEnv);
