@@ -5,7 +5,7 @@ import { toListingImageInputs } from '../lib/upload';
 import { uploadListingImagesToCloudinary } from './upload.service';
 import { prisma } from '../lib/prisma';
 import { publicUserSelect } from '../utils/userSelect';
-import { serializeDecimal } from '../utils/serialize';
+import { serializeDecimal, slugify } from '../utils/serialize';
 
 const sellerSummarySelect = {
   id: true,
@@ -43,6 +43,27 @@ const assertCanManageListing = (listing: { sellerId: string }, user: User) => {
     throw new AppError(403, 'You can only manage your own listings');
   }
 };
+
+async function generateUniqueSlug(title: string, excludeId?: string): Promise<string> {
+  const base = slugify(title);
+  let slug = base;
+  let counter = 2;
+
+  while (true) {
+    const existing = await prisma.listing.findFirst({
+      where: {
+        slug,
+        deletedAt: null,
+        ...(excludeId && { id: { not: excludeId } }),
+      },
+      select: { id: true },
+    });
+
+    if (!existing) return slug;
+    slug = `${base}-${counter}`;
+    counter++;
+  }
+}
 
 export const listListings = async (query: {
   page: number;
@@ -149,6 +170,38 @@ export const getListingById = async (
   return serializeListing(listing);
 };
 
+export const getListingBySlug = async (
+  slug: string,
+  viewer?: User,
+  incrementView = true,
+) => {
+  const listing = await prisma.listing.findFirst({
+    where: { slug, deletedAt: null },
+    include: listingInclude,
+  });
+
+  if (!listing) {
+    throw new AppError(404, 'Listing not found');
+  }
+
+  const isOwner = viewer?.id === listing.sellerId;
+  const isAdmin = viewer?.role === 'ADMIN';
+
+  if (listing.status !== 'ACTIVE' && !isOwner && !isAdmin) {
+    throw new AppError(404, 'Listing not found');
+  }
+
+  if (incrementView && listing.status === 'ACTIVE') {
+    await prisma.listing.update({
+      where: { id: listing.id },
+      data: { viewCount: { increment: 1 } },
+    });
+    listing.viewCount += 1;
+  }
+
+  return serializeListing(listing);
+};
+
 export const getMyListings = async (
   sellerId: string,
   query: { page: number; limit: number; status?: ListingStatus },
@@ -215,11 +268,14 @@ export const createListing = async (
     ? input.images
     : input.images.map((img, index) => ({ ...img, isPrimary: index === 0 }));
 
+  const slug = await generateUniqueSlug(input.title);
+
   const listing = await prisma.listing.create({
     data: {
       sellerId,
       categoryId: input.categoryId,
       title: input.title,
+      slug,
       description: input.description,
       price: input.price,
       currency: input.currency,
@@ -285,6 +341,10 @@ export const updateListing = async (
 
   const { images, ...data } = input;
 
+  const slugUpdate = data.title
+    ? { slug: await generateUniqueSlug(data.title, id) }
+    : {};
+
   const updated = await prisma.$transaction(async (tx) => {
     if (images) {
       await tx.listingImage.deleteMany({ where: { listingId: id } });
@@ -296,6 +356,7 @@ export const updateListing = async (
     return tx.listing.update({
       where: { id },
       data: {
+        ...slugUpdate,
         categoryId: data.categoryId,
         title: data.title,
         description: data.description,

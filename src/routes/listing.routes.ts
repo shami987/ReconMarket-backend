@@ -56,6 +56,20 @@ router.get(
 );
 
 router.get(
+  '/by-slug/:slug',
+  optionalAuthenticate,
+  validate(z.object({ slug: z.string().min(1) }), 'params'),
+  asyncHandler(async (req, res) => {
+    const listing = await listingService.getListingBySlug(
+      req.params.slug as string,
+      req.user,
+      true,
+    );
+    res.json({ listing });
+  }),
+);
+
+router.get(
   '/:id',
   optionalAuthenticate,
   validate(listingIdParamSchema, 'params'),

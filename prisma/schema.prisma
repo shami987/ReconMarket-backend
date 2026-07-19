@@ -173,6 +173,7 @@ model Listing {
   sellerId    String
   categoryId  String
   title       String
+  slug        String           @default("")
   description String
   price       Decimal          @db.Decimal(12, 2)
   currency    String           @default("USD")
