@@ -68,9 +68,7 @@ export const getVerificationStatus = async (userId: string) => {
 
   return {
     verificationType: user.verificationType,
-    canSell:
-      user.verificationType === 'INDIVIDUAL_SELLER' ||
-      user.verificationType === 'BUSINESS_SELLER',
+    canSell: true,
     requests: user.sellerVerifications,
   };
 };

@@ -45,21 +45,16 @@ export const handleGoogleCallback = async (code: string) => {
   });
 
   if (user) {
-    // Update avatar if Google has one and user doesn't
-    if (picture && !user.avatarUrl) {
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: { avatarUrl: picture, isEmailVerified: true },
-      });
-    } else {
-      // Ensure email is marked verified for Google users
-      if (!user.isEmailVerified) {
-        user = await prisma.user.update({
-          where: { id: user.id },
-          data: { isEmailVerified: true },
-        });
-      }
-    }
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        isEmailVerified: true,
+        ...(picture ? { avatarUrl: picture } : {}),
+        ...(given_name ? { firstName: given_name } : {}),
+        ...(family_name ? { lastName: family_name } : {}),
+        lastLoginAt: new Date(),
+      },
+    });
   } else {
     // Generate a random password hash (Google users don't need a password)
     const { hashPassword } = await import('../lib/password');

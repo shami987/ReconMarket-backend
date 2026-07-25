@@ -1,4 +1,6 @@
 import { ListingStatus, Prisma, User } from '@prisma/client';
+import bcrypt from 'bcryptjs';
+import { randomUUID } from 'crypto';
 import { uploadConfig } from '../config/upload';
 import { AppError } from '../errors/AppError';
 import { toListingImageInputs } from '../lib/upload';
@@ -285,6 +287,81 @@ export const createListing = async (
       quantity: input.quantity ?? 1,
       expiresAt: input.expiresAt,
       status: 'DRAFT',
+      images: { create: images },
+    },
+    include: listingInclude,
+  });
+
+  return serializeListing(listing);
+};
+
+/** Temporary no-auth listing: only requires a display name. Auth will be restored later. */
+export const createGuestListing = async (input: {
+  sellerName: string;
+  categoryId: string;
+  title: string;
+  description: string;
+  price: number;
+  currency?: string;
+  condition: string;
+  city?: string;
+  country?: string;
+  quantity?: number;
+  images: Array<{
+    url: string;
+    altText?: string;
+    sortOrder: number;
+    isPrimary: boolean;
+  }>;
+}) => {
+  const category = await prisma.category.findFirst({
+    where: { id: input.categoryId, isActive: true },
+  });
+
+  if (!category) {
+    throw new AppError(404, 'Category not found');
+  }
+
+  const nameParts = input.sellerName.trim().split(/\s+/);
+  const firstName = nameParts[0] || 'Guest';
+  const lastName = nameParts.slice(1).join(' ') || 'Seller';
+  const passwordHash = await bcrypt.hash(randomUUID(), 10);
+
+  const guestSeller = await prisma.user.create({
+    data: {
+      email: `guest.${Date.now()}.${randomUUID().slice(0, 8)}@reconmarket.local`,
+      passwordHash,
+      firstName,
+      lastName,
+      role: 'USER',
+      verificationType: 'NONE',
+      isEmailVerified: false,
+      isActive: true,
+    },
+  });
+
+  const hasPrimary = input.images.some((img) => img.isPrimary);
+  const images = hasPrimary
+    ? input.images
+    : input.images.map((img, index) => ({ ...img, isPrimary: index === 0 }));
+
+  const slug = await generateUniqueSlug(input.title);
+
+  const listing = await prisma.listing.create({
+    data: {
+      sellerId: guestSeller.id,
+      categoryId: input.categoryId,
+      title: input.title,
+      slug,
+      description: input.description,
+      price: input.price,
+      currency: input.currency ?? 'RWF',
+      condition: input.condition as Prisma.ListingCreateInput['condition'],
+      city: input.city,
+      country: input.country ?? 'Rwanda',
+      quantity: input.quantity ?? 1,
+      status: 'ACTIVE',
+      publishedAt: new Date(),
       images: { create: images },
     },
     include: listingInclude,

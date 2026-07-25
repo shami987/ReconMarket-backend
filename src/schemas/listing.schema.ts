@@ -32,6 +32,11 @@ export const createListingSchema = z.object({
   images: z.array(listingImageSchema).min(1).max(10),
 });
 
+/** Temporary public post — name only, no account (auth comes back later) */
+export const guestCreateListingSchema = createListingSchema.extend({
+  sellerName: z.string().trim().min(2).max(100),
+});
+
 export const updateListingSchema = createListingSchema.partial().extend({
   status: listingStatusSchema.optional(),
 });

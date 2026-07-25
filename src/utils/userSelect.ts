@@ -21,7 +21,6 @@ export type PublicUser = Pick<User, keyof typeof publicUserSelect>;
 
 export const toPublicUser = (user: PublicUser) => ({
   ...user,
-  canSell:
-    user.verificationType === 'INDIVIDUAL_SELLER' ||
-    user.verificationType === 'BUSINESS_SELLER',
+  // Everyone can buy and sell with one account
+  canSell: true,
 });

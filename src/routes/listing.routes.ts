@@ -9,7 +9,6 @@ import {
 import * as listingService from '../services/listing.service';
 import { AppError } from '../errors/AppError';
 import { authenticate, optionalAuthenticate } from '../middleware/authenticate';
-import { requireVerifiedSeller } from '../middleware/authorize';
 import { uploadListingImages } from '../middleware/upload';
 import { validate } from '../middleware/validate';
 import { asyncHandler } from '../utils/asyncHandler';
@@ -86,7 +85,6 @@ router.get(
 router.post(
   '/',
   authenticate,
-  requireVerifiedSeller,
   validate(createListingSchema),
   asyncHandler(async (req, res) => {
     const listing = await listingService.createListing(req.user!.id, req.body);
@@ -97,7 +95,6 @@ router.post(
 router.patch(
   '/:id',
   authenticate,
-  requireVerifiedSeller,
   validate(listingIdParamSchema, 'params'),
   validate(updateListingSchema),
   asyncHandler(async (req, res) => {
@@ -113,7 +110,6 @@ router.patch(
 router.patch(
   '/:id/publish',
   authenticate,
-  requireVerifiedSeller,
   validate(listingIdParamSchema, 'params'),
   asyncHandler(async (req, res) => {
     const listing = await listingService.publishListing(req.params.id as string, req.user!);
@@ -124,7 +120,6 @@ router.patch(
 router.post(
   '/:id/images',
   authenticate,
-  requireVerifiedSeller,
   validate(listingIdParamSchema, 'params'),
   uploadListingImages,
   asyncHandler(async (req, res) => {
@@ -150,7 +145,6 @@ router.post(
 router.delete(
   '/:id',
   authenticate,
-  requireVerifiedSeller,
   validate(listingIdParamSchema, 'params'),
   asyncHandler(async (req, res) => {
     const listing = await listingService.deleteListing(req.params.id as string, req.user!);
