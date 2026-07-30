@@ -202,6 +202,7 @@ model Listing {
   @@index([price])
   @@index([publishedAt])
   @@index([deletedAt])
+  @@index([slug])
   @@map("listings")
 }
 
