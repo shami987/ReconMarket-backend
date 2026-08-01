@@ -29,6 +29,7 @@ const DEV_USERS: SeedUser[] = [
     verificationType: 'NONE',
   },
   {
+    //changes
     email: 'buyer@reconmarket.dev',
     firstName: 'Buyer',
     lastName: 'User',
