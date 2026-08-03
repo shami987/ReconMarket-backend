@@ -15,7 +15,7 @@
     "db:seed": "prisma db seed",
     "postinstall": "prisma generate",
     "test": "echo \"Error: no test specified\" && exit 1"
-  },
+  },  
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   },
@@ -27,7 +27,7 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
-  "bugs": {
+  "bugs": { 
     "url": "https://github.com/shami987/ReconMarket-backend/issues"
   },
   "homepage": "https://github.com/shami987/ReconMarket-backend#readme",
@@ -65,4 +65,4 @@
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"
   }
-}
+} 

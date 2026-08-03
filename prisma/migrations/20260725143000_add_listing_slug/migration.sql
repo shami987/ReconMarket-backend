@@ -1,4 +1,4 @@
-﻿-- AlterTable
+-- AlterTable
 ALTER TABLE "listings" ADD COLUMN IF NOT EXISTS "slug" TEXT NOT NULL DEFAULT '';
 
 -- CreateIndex
