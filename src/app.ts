@@ -46,7 +46,7 @@ app.use(
 );
 app.use(
   cors({
-    origin: [env.CLIENT_URL, 'http://localhost:3000', 'http://localhost:3001', 'https://reconmarket-backend-vxj2.onrender.com'],
+    origin: [env.CLIENT_URL, 'http://localhost:3000', 'http://localhost:3001', 'https://recorn-market.vercel.app'],
     credentials: true,
   }),
 );
