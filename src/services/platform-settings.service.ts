@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 
 export type PlatformSettings = {
@@ -44,10 +45,10 @@ export async function getSettings(): Promise<PlatformSettings> {
 }
 
 export async function updateSettings(input: Partial<PlatformSettings>): Promise<PlatformSettings> {
-  const updates: { key: string; value: unknown }[] = [];
+  const updates: { key: string; value: Prisma.InputJsonValue }[] = [];
   for (const [k, v] of Object.entries(input)) {
     if (v !== undefined) {
-      updates.push({ key: k, value: v });
+      updates.push({ key: k, value: v as Prisma.InputJsonValue });
     }
   }
 
