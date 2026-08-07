@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Router } from 'express';
 import { updateRoleSchema } from '../schemas/auth.schema';
 import { reviewVerificationSchema } from '../schemas/verification.schema';
@@ -186,9 +187,9 @@ router.get(
     const status = req.query.status as string | undefined;
     const search = req.query.search as string | undefined;
 
-    const where: Parameters<typeof prisma.listing.findMany>[0]['where'] = {
+    const where: Prisma.ListingWhereInput = {
       deletedAt: null,
-      ...(status && { status: status as Parameters<typeof prisma.listing.findMany>[0]['where']['status'] }),
+      ...(status && { status: status as Prisma.ListingWhereInput['status'] }),
       ...(search && {
         OR: [
           { title: { contains: search, mode: 'insensitive' as const } },
