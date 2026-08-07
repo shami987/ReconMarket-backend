@@ -19,7 +19,6 @@ const envSchema = z.object({
   JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
 
   OTP_EXPIRES_MINUTES: z.coerce.number().int().positive().default(10),
-  PICKUP_OTP_EXPIRES_MINUTES: z.coerce.number().int().positive().default(30),
 
   EMAIL_HOST: z.string().default('smtp.gmail.com'),
   EMAIL_PORT: z.coerce.number().int().positive().default(587),
@@ -40,19 +39,11 @@ const envSchema = z.object({
   CLOUDINARY_API_KEY: z.string().min(1, 'CLOUDINARY_API_KEY is required'),
   CLOUDINARY_API_SECRET: z.string().min(1, 'CLOUDINARY_API_SECRET is required'),
   CLOUDINARY_FOLDER: z.string().default('reconmarket/listings'),
-  CLOUDINARY_PICKUP_FOLDER: z.string().default('reconmarket/pickups'),
   MAX_UPLOAD_SIZE_MB: z.coerce.number().positive().default(5),
   MAX_LISTING_IMAGES: z.coerce.number().int().positive().max(20).default(10),
-  PLATFORM_FEE_PERCENT: z.coerce.number().min(0).max(100).default(5),
-  PAYMENT_PROVIDER: z.enum(['mock']).default('mock'),
-  MOCK_PAYMENT_WEBHOOK_SECRET: z
-    .string()
-    .min(16, 'MOCK_PAYMENT_WEBHOOK_SECRET must be at least 16 characters'),
 });
 
 export type Env = z.infer<typeof envSchema>;
-
-const DEV_MOCK_WEBHOOK_SECRET = 'dev-mock-payment-webhook-secret';
 
 /** Map legacy JWT_SECRET / JWT_EXPIRES_IN to the split access + refresh config. */
 const normalizedEnv = {
@@ -62,9 +53,6 @@ const normalizedEnv = {
   JWT_ACCESS_EXPIRES_IN: process.env.JWT_ACCESS_EXPIRES_IN ?? '15m',
   JWT_REFRESH_EXPIRES_IN:
     process.env.JWT_REFRESH_EXPIRES_IN ?? process.env.JWT_EXPIRES_IN ?? '7d',
-  MOCK_PAYMENT_WEBHOOK_SECRET:
-    process.env.MOCK_PAYMENT_WEBHOOK_SECRET ??
-    (process.env.NODE_ENV === 'production' ? undefined : DEV_MOCK_WEBHOOK_SECRET),
 };
 
 export const env: Env = envSchema.parse(normalizedEnv);

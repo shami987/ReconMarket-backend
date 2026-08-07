@@ -36,73 +36,6 @@ export const notifyNewMessage = async (
     tx,
   );
 
-export const notifyPaymentEscrowHeld = async (
-  input: {
-    buyerId: string;
-    sellerId: string;
-    transactionId: string;
-    listingTitle: string;
-    amount: string | number;
-    currency: string;
-  },
-  tx?: DbClient,
-) =>
-  createNotifications(
-    [
-      {
-        userId: input.buyerId,
-        type: 'TRANSACTION',
-        title: 'Payment confirmed',
-        body: `Your payment for "${input.listingTitle}" is secured in escrow (${input.amount} ${input.currency}).`,
-        data: transactionData(input.transactionId, { status: 'PAYMENT_CONFIRMED' }),
-      },
-      {
-        userId: input.sellerId,
-        type: 'TRANSACTION',
-        title: 'Payment received — escrow held',
-        body: `A buyer paid for "${input.listingTitle}". Funds are held in escrow until pickup is verified.`,
-        data: transactionData(input.transactionId, { status: 'PAYMENT_CONFIRMED' }),
-      },
-    ],
-    tx,
-  );
-
-export const notifyPickupOtpReady = async (
-  input: {
-    buyerId: string;
-    sellerId: string;
-    transactionId: string;
-    listingTitle: string;
-    regenerated?: boolean;
-  },
-  tx?: DbClient,
-) =>
-  createNotifications(
-    [
-      {
-        userId: input.buyerId,
-        type: 'TRANSACTION',
-        title: input.regenerated ? 'New pickup release code' : 'Pickup release code ready',
-        body: `Your release code for "${input.listingTitle}" is ready. Share it with the seller only after you collect the item.`,
-        data: transactionData(input.transactionId, {
-          status: 'IN_PROGRESS',
-          event: 'pickup_otp_ready',
-        }),
-      },
-      {
-        userId: input.sellerId,
-        type: 'TRANSACTION',
-        title: 'Buyer confirmed pickup',
-        body: `The buyer confirmed pickup for "${input.listingTitle}". Ask them for the release code to receive payment.`,
-        data: transactionData(input.transactionId, {
-          status: 'IN_PROGRESS',
-          event: 'pickup_confirmed',
-        }),
-      },
-    ],
-    tx,
-  );
-
 export const notifyVerificationReview = async (
   input: {
     userId: string;
@@ -190,14 +123,14 @@ export const notifyTransactionCreated = async (
         userId: input.buyerId,
         type: 'TRANSACTION',
         title: 'Order started',
-        body: `Complete payment to secure your purchase of "${input.listingTitle}".`,
+        body: `Your purchase of "${input.listingTitle}" has been started.`,
         data: transactionData(input.transactionId, { status: 'PENDING', event: 'created' }),
       },
       {
         userId: input.sellerId,
         type: 'TRANSACTION',
         title: 'New purchase started',
-        body: `A buyer started a purchase for "${input.listingTitle}". Awaiting payment.`,
+        body: `A buyer started a purchase for "${input.listingTitle}".`,
         data: transactionData(input.transactionId, { status: 'PENDING', event: 'created' }),
       },
     ],
@@ -225,9 +158,9 @@ export const notifyTransactionCompleted = async (
       {
         userId: input.sellerId,
         type: 'TRANSACTION',
-        title: 'Payment released',
-        body: `Escrow funds for "${input.listingTitle}" have been released to you.`,
-        data: transactionData(input.transactionId, { status: 'COMPLETED', event: 'funds_released' }),
+        title: 'Transaction completed',
+        body: `The sale of "${input.listingTitle}" is complete.`,
+        data: transactionData(input.transactionId, { status: 'COMPLETED', event: 'completed' }),
       },
     ],
     tx,
@@ -250,7 +183,7 @@ export const notifyTransactionCancelled = async (
         type: 'TRANSACTION',
         title: input.refunded ? 'Order cancelled — refunded' : 'Order cancelled',
         body: input.refunded
-          ? `Your order for "${input.listingTitle}" was cancelled and escrow funds were refunded.`
+          ? `Your order for "${input.listingTitle}" was cancelled and refunded.`
           : `Your order for "${input.listingTitle}" was cancelled.`,
         data: transactionData(input.transactionId, {
           status: input.refunded ? 'REFUNDED' : 'CANCELLED',
@@ -286,14 +219,14 @@ export const notifyTransactionDisputed = async (
         userId: input.buyerId,
         type: 'TRANSACTION',
         title: 'Transaction disputed',
-        body: `A dispute was opened for "${input.listingTitle}". Escrow funds remain held.`,
+        body: `A dispute was opened for "${input.listingTitle}".`,
         data: transactionData(input.transactionId, { status: 'DISPUTED', event: 'disputed' }),
       },
       {
         userId: input.sellerId,
         type: 'TRANSACTION',
         title: 'Transaction disputed',
-        body: `A dispute was opened for "${input.listingTitle}". Escrow funds remain held.`,
+        body: `A dispute was opened for "${input.listingTitle}".`,
         data: transactionData(input.transactionId, { status: 'DISPUTED', event: 'disputed' }),
       },
     ],
@@ -315,7 +248,7 @@ export const notifyTransactionRefunded = async (
         userId: input.buyerId,
         type: 'TRANSACTION',
         title: 'Refund processed',
-        body: `Escrow funds for "${input.listingTitle}" were refunded to you.`,
+        body: `Your order for "${input.listingTitle}" was refunded.`,
         data: transactionData(input.transactionId, { status: 'REFUNDED', event: 'refunded' }),
       },
       {
