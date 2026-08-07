@@ -80,7 +80,7 @@ export const listNotifications = async (
   ]);
 
   return {
-    items,
+    notifications: items,
     unreadCount,
     pagination: {
       page: query.page,
@@ -124,5 +124,5 @@ export const markAllNotificationsRead = async (userId: string) => {
     data: { isRead: true, readAt: new Date() },
   });
 
-  return { markedRead: result.count, readAt: new Date() };
+  return { result: { count: result.count }, readAt: new Date() };
 };

@@ -20,6 +20,7 @@ router.get(
   '/',
   validate(listListingsQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
+    res.set('Cache-Control', 'public, max-age=60, s-maxage=120, stale-while-revalidate=300');
     const result = await listingService.listListings(
       req.validatedQuery as Parameters<typeof listingService.listListings>[0],
     );
@@ -59,6 +60,7 @@ router.get(
   optionalAuthenticate,
   validate(z.object({ slug: z.string().min(1) }), 'params'),
   asyncHandler(async (req, res) => {
+    res.set('Cache-Control', 'public, max-age=120, s-maxage=300, stale-while-revalidate=600');
     const listing = await listingService.getListingBySlug(
       req.params.slug as string,
       req.user,
@@ -73,6 +75,7 @@ router.get(
   optionalAuthenticate,
   validate(listingIdParamSchema, 'params'),
   asyncHandler(async (req, res) => {
+    res.set('Cache-Control', 'public, max-age=120, s-maxage=300, stale-while-revalidate=600');
     const listing = await listingService.getListingById(
       req.params.id as string,
       req.user,

@@ -229,7 +229,7 @@ export const listMyTransactions = async (
   ]);
 
   return {
-    items: items.map(serializeTransaction),
+    transactions: items.map(serializeTransaction),
     pagination: {
       page: query.page,
       limit: query.limit,

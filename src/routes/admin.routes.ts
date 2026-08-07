@@ -4,6 +4,7 @@ import { reviewVerificationSchema } from '../schemas/verification.schema';
 import { adminCategoryRouter } from './category.routes';
 import * as authService from '../services/auth.service';
 import * as verificationService from '../services/verification.service';
+import * as platformSettingsService from '../services/platform-settings.service';
 import { authenticate } from '../middleware/authenticate';
 import { requireRole } from '../middleware/authorize';
 import { validate } from '../middleware/validate';
@@ -227,6 +228,14 @@ router.get(
   }),
 );
 
+router.get(
+  '/verifications/pending',
+  asyncHandler(async (_req, res) => {
+    const verifications = await verificationService.listPendingVerifications();
+    res.json({ verifications });
+  }),
+);
+
 router.patch(
   '/verifications/:id',
   validate(reviewVerificationSchema),
@@ -250,6 +259,22 @@ router.patch(
       req.body.role,
     );
     res.json({ user });
+  }),
+);
+
+router.get(
+  '/settings',
+  asyncHandler(async (_req, res) => {
+    const settings = await platformSettingsService.getSettings();
+    res.json({ settings });
+  }),
+);
+
+router.patch(
+  '/settings',
+  asyncHandler(async (req, res) => {
+    const settings = await platformSettingsService.updateSettings(req.body);
+    res.json({ settings });
   }),
 );
 
