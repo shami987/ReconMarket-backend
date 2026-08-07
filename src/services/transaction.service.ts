@@ -2,7 +2,6 @@ import { Prisma, Transaction, TransactionStatus, User } from '@prisma/client';
 import { ACTIVE_TRANSACTION_STATUSES, calculateTransactionAmounts } from '../lib/transactions';
 import { AppError } from '../errors/AppError';
 import { prisma } from '../lib/prisma';
-import { initiateEscrowRefund } from './payment.service';
 import {
   notifyTransactionCancelled,
   notifyTransactionCreated,
@@ -32,37 +31,17 @@ const transactionInclude = {
   listing: { select: listingSummarySelect },
   buyer: { select: publicUserSelect },
   seller: { select: publicUserSelect },
-  payment: true,
 } satisfies Prisma.TransactionInclude;
 
 type TransactionWithRelations = Prisma.TransactionGetPayload<{
   include: typeof transactionInclude;
 }>;
 
-const serializePayment = (
-  payment: NonNullable<TransactionWithRelations['payment']> | null,
-) => {
-  if (!payment) {
-    return null;
-  }
-
-  return {
-    ...payment,
-    amount: serializeDecimal(payment.amount),
-  };
-};
-
 const serializeTransaction = (transaction: TransactionWithRelations) => {
-  const amount = serializeDecimal(transaction.amount);
-  const platformFee = serializeDecimal(transaction.platformFee);
-
   return {
     ...transaction,
     unitPrice: serializeDecimal(transaction.unitPrice),
-    amount,
-    platformFee,
-    sellerPayout: amount - platformFee,
-    payment: serializePayment(transaction.payment),
+    amount: serializeDecimal(transaction.amount),
     listing: transaction.listing
       ? {
           ...transaction.listing,
@@ -136,8 +115,6 @@ export const createTransaction = async (
   input: {
     listingId: string;
     quantity: number;
-    pickupLocation: string;
-    agreedPickupAt: Date;
     notes?: string;
   },
 ) => {
@@ -177,7 +154,7 @@ export const createTransaction = async (
       throw new AppError(409, 'This listing is already reserved by another buyer');
     }
 
-    const { amount, platformFee } = calculateTransactionAmounts(
+    const { amount } = calculateTransactionAmounts(
       listing.price,
       input.quantity,
     );
@@ -192,10 +169,7 @@ export const createTransaction = async (
         unitPrice: listing.price,
         amount,
         currency: listing.currency,
-        platformFee,
         status: 'PENDING',
-        pickupLocation: input.pickupLocation,
-        agreedPickupAt: input.agreedPickupAt,
         notes: input.notes,
       },
       include: transactionInclude,
@@ -278,7 +252,6 @@ export const cancelTransaction = async (
 ) => {
   const transaction = await prisma.transaction.findUnique({
     where: { id },
-    include: { payment: true },
   });
 
   if (!transaction) {
@@ -287,29 +260,11 @@ export const cancelTransaction = async (
 
   assertParticipant(transaction, user);
 
-  if (!['PENDING', 'PAYMENT_CONFIRMED', 'IN_PROGRESS'].includes(transaction.status)) {
+  if (!['PENDING', 'IN_PROGRESS'].includes(transaction.status)) {
     throw new AppError(400, 'This transaction cannot be cancelled');
   }
 
   const noteSuffix = reason ? ` Cancellation reason: ${reason}` : '';
-
-  if (transaction.payment?.escrowStatus === 'HELD') {
-    await initiateEscrowRefund(id);
-
-    const updated = await prisma.$transaction(async (tx) => {
-      await restoreListingQuantity(tx, transaction.listingId, transaction.quantity);
-
-      return tx.transaction.findUniqueOrThrow({
-        where: { id },
-        include: transactionInclude,
-      });
-    });
-
-    return {
-      transaction: serializeTransaction(updated),
-      message: 'Transaction cancelled. Escrow funds refunded to buyer.',
-    };
-  }
 
   const updated = await prisma.$transaction(async (tx) => {
     await restoreListingQuantity(tx, transaction.listingId, transaction.quantity);
@@ -352,7 +307,7 @@ export const disputeTransaction = async (
   const updated = await prisma.$transaction(async (tx) => {
     const transaction = await tx.transaction.findUnique({
       where: { id },
-      include: { payment: true, listing: { select: { title: true } } },
+      include: { listing: { select: { title: true } } },
     });
 
     if (!transaction) {
@@ -361,12 +316,8 @@ export const disputeTransaction = async (
 
     assertParticipant(transaction, user);
 
-    if (!['PAYMENT_CONFIRMED', 'IN_PROGRESS'].includes(transaction.status)) {
+    if (!['IN_PROGRESS'].includes(transaction.status)) {
       throw new AppError(400, 'This transaction cannot be disputed');
-    }
-
-    if (!transaction.payment || transaction.payment.escrowStatus !== 'HELD') {
-      throw new AppError(400, 'Disputes require escrow funds to be held');
     }
 
     await notifyTransactionDisputed(
@@ -393,14 +344,13 @@ export const disputeTransaction = async (
 
   return {
     transaction: serializeTransaction(updated),
-    message: 'Transaction disputed. Escrow funds remain held pending resolution.',
+    message: 'Transaction disputed.',
   };
 };
 
 export const refundTransaction = async (id: string, user: User, reason?: string) => {
   const transaction = await prisma.transaction.findUnique({
     where: { id },
-    include: { payment: true },
   });
 
   if (!transaction) {
@@ -413,34 +363,27 @@ export const refundTransaction = async (id: string, user: User, reason?: string)
     throw new AppError(400, 'Refunds can only be processed for disputed transactions');
   }
 
-  if (!transaction.payment || transaction.payment.escrowStatus !== 'HELD') {
-    throw new AppError(400, 'No escrow funds available to refund');
-  }
-
-  await initiateEscrowRefund(id);
-
   const updated = await prisma.$transaction(async (tx) => {
     await restoreListingQuantity(tx, transaction.listingId, transaction.quantity);
 
-    if (reason) {
-      await tx.transaction.update({
-        where: { id },
-        data: {
-          notes: transaction.notes
-            ? `${transaction.notes} Refund reason: ${reason}`
-            : `Refund reason: ${reason}`,
-        },
-      });
-    }
-
-    return tx.transaction.findUniqueOrThrow({
+    const refunded = await tx.transaction.update({
       where: { id },
+      data: {
+        status: 'REFUNDED',
+        notes: reason
+          ? transaction.notes
+            ? `${transaction.notes} Refund reason: ${reason}`
+            : `Refund reason: ${reason}`
+          : transaction.notes,
+      },
       include: transactionInclude,
     });
+
+    return refunded;
   });
 
   return {
     transaction: serializeTransaction(updated),
-    message: 'Escrow funds refunded to buyer.',
+    message: 'Transaction refunded.',
   };
 };

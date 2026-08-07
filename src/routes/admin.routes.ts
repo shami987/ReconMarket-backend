@@ -21,7 +21,6 @@ router.get(
   asyncHandler(async (_req, res) => {
     const STATUS_COLORS: Record<string, string> = {
       PENDING: 'bg-amber-500',
-      PAYMENT_CONFIRMED: 'bg-blue-500',
       IN_PROGRESS: 'bg-violet-500',
       COMPLETED: 'bg-emerald-500',
       CANCELLED: 'bg-slate-400',

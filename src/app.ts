@@ -15,7 +15,6 @@ import notificationRouter from './routes/notification.routes';
 import transactionRouter from './routes/transaction.routes';
 import uploadRouter from './routes/upload.routes';
 import verificationRouter from './routes/verification.routes';
-import webhookRouter, { paymentDevRouter } from './routes/webhook.routes';
 
 const app = express();
 
@@ -52,12 +51,6 @@ app.use(
   }),
 );
 
-app.use(
-  '/api/webhooks',
-  express.raw({ type: 'application/json' }),
-  webhookRouter,
-);
-
 app.use(express.json());
 
 app.get('/api-docs', (_req, res) => res.redirect(301, '/api/docs'));
@@ -73,7 +66,6 @@ app.use('/api/chats', chatRouter);
 app.use('/api/notifications', notificationRouter);
 app.use('/api/listings', listingRouter);
 app.use('/api/transactions', transactionRouter);
-app.use('/api/payments', paymentDevRouter);
 app.use('/api/uploads', uploadRouter);
 app.use('/api/verification', verificationRouter);
 app.use('/api/admin', adminRouter);

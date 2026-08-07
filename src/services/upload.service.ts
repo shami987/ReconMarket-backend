@@ -67,10 +67,3 @@ export const uploadImagesToCloudinary = async (
 export const uploadListingImagesToCloudinary = async (
   files: Express.Multer.File[],
 ): Promise<UploadedImage[]> => uploadImagesToCloudinary(files, env.CLOUDINARY_FOLDER);
-
-export const uploadPickupPhotoToCloudinary = async (
-  file: Express.Multer.File,
-): Promise<UploadedImage> => {
-  const [uploaded] = await uploadImagesToCloudinary([file], env.CLOUDINARY_PICKUP_FOLDER);
-  return uploaded;
-};

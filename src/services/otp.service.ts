@@ -7,11 +7,9 @@ import { logger } from '../lib/logger';
 import { sendMail } from '../lib/mail';
 import { prisma } from '../lib/prisma';
 
-const PICKUP_RELEASE_PURPOSE = 'PICKUP_RELEASE' as OtpPurpose;
-
 const invalidateExistingOtps = async (
   purpose: OtpPurpose,
-  filters: { email?: string; userId?: string; transactionId?: string },
+  filters: { email?: string; userId?: string },
 ): Promise<void> => {
   await prisma.otp.updateMany({
     where: {
@@ -19,7 +17,6 @@ const invalidateExistingOtps = async (
       usedAt: null,
       ...(filters.email && { email: filters.email }),
       ...(filters.userId && { userId: filters.userId }),
-      ...(filters.transactionId && { transactionId: filters.transactionId }),
     } as Prisma.OtpWhereInput,
     data: { usedAt: new Date() },
   });
@@ -93,105 +90,6 @@ export const verifyOtp = async (params: {
   return { userId: otp.userId ?? undefined };
 };
 
-export const createPickupReleaseOtp = async (params: {
-  transactionId: string;
-  buyerId: string;
-  buyerEmail: string;
-}): Promise<string> => {
-  const code = generateOtpCode();
-  const codeHash = await hashToken(code);
-  const expiresAt = new Date(Date.now() + env.PICKUP_OTP_EXPIRES_MINUTES * 60 * 1000);
-
-  await invalidateExistingOtps(PICKUP_RELEASE_PURPOSE, { transactionId: params.transactionId });
-
-  await prisma.otp.create({
-    data: {
-      transactionId: params.transactionId,
-      userId: params.buyerId,
-      email: params.buyerEmail,
-      codeHash,
-      purpose: PICKUP_RELEASE_PURPOSE,
-      expiresAt,
-    } as Prisma.OtpUncheckedCreateInput,
-  });
-
-  logger.info(
-    { transactionId: params.transactionId, buyerEmail: params.buyerEmail },
-    `[DEV PICKUP OTP] Release code for transaction ${params.transactionId}: ${code}`,
-  );
-
-  await sendOtpEmail(params.buyerEmail, PICKUP_RELEASE_PURPOSE, code);
-
-  return code;
-};
-
-export const getPickupReleaseOtpStatus = async (transactionId: string) => {
-  const otp = await prisma.otp.findFirst({
-    where: {
-      transactionId,
-      purpose: PICKUP_RELEASE_PURPOSE,
-    } as Prisma.OtpWhereInput,
-    orderBy: { createdAt: 'desc' },
-  });
-
-  if (!otp) {
-    return {
-      active: false,
-      expiresAt: null,
-      verified: false,
-      attemptsRemaining: 0,
-    };
-  }
-
-  const verified = Boolean(otp.usedAt);
-  const active = !verified && !otp.usedAt && otp.expiresAt > new Date();
-
-  return {
-    active,
-    expiresAt: otp.expiresAt,
-    verified,
-    attemptsRemaining: Math.max(0, otp.maxAttempts - otp.attempts),
-  };
-};
-
-export const verifyPickupReleaseOtp = async (params: {
-  transactionId: string;
-  code: string;
-}): Promise<void> => {
-  const otp = await prisma.otp.findFirst({
-    where: {
-      transactionId: params.transactionId,
-      purpose: PICKUP_RELEASE_PURPOSE,
-      usedAt: null,
-      expiresAt: { gt: new Date() },
-    } as Prisma.OtpWhereInput,
-    orderBy: { createdAt: 'desc' },
-  });
-
-  if (!otp) {
-    throw new AppError(400, 'Invalid or expired pickup release code');
-  }
-
-  if (otp.attempts >= otp.maxAttempts) {
-    throw new AppError(429, 'Too many attempts. Buyer must confirm pickup again.');
-  }
-
-  const isValid = await compareToken(params.code, otp.codeHash);
-
-  if (!isValid) {
-    await prisma.otp.update({
-      where: { id: otp.id },
-      data: { attempts: { increment: 1 } },
-    });
-    throw new AppError(400, 'Invalid or expired pickup release code');
-  }
-
-  await prisma.otp.update({
-    where: { id: otp.id },
-    data: { usedAt: new Date() },
-  });
-};
-
 export const sendOtpEmail = async (
   email: string,
   purpose: OtpPurpose,
@@ -202,7 +100,6 @@ export const sendOtpEmail = async (
     PHONE_VERIFICATION: 'Verify your ReconMarket phone',
     PASSWORD_RESET: 'Reset your ReconMarket password',
     LOGIN: 'Your ReconMarket login code',
-    PICKUP_RELEASE: 'Your ReconMarket pickup release code',
   };
 
   const subject = subjects[purpose] ?? 'Your ReconMarket verification code';

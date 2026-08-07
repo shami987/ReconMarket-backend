@@ -3,7 +3,6 @@ import { idParamSchema, paginationSchema } from './common';
 
 export const transactionStatusSchema = z.enum([
   'PENDING',
-  'PAYMENT_CONFIRMED',
   'IN_PROGRESS',
   'COMPLETED',
   'CANCELLED',
@@ -14,8 +13,6 @@ export const transactionStatusSchema = z.enum([
 export const createTransactionSchema = z.object({
   listingId: z.uuid(),
   quantity: z.coerce.number().int().positive().default(1),
-  pickupLocation: z.string().min(3).max(500),
-  agreedPickupAt: z.coerce.date(),
   notes: z.string().max(1000).optional(),
 });
 
