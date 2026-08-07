@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import {
+  changePasswordSchema,
   forgotPasswordSchema,
   loginSchema,
   logoutSchema,
@@ -7,6 +8,7 @@ import {
   registerSchema,
   resendVerificationSchema,
   resetPasswordSchema,
+  updateProfileSchema,
   verifyEmailSchema,
 } from '../schemas/auth.schema';
 import * as authService from '../services/auth.service';
@@ -96,6 +98,26 @@ router.get(
   asyncHandler(async (req, res) => {
     const user = await authService.getMe(req.user!.id);
     res.json({ user });
+  }),
+);
+
+router.put(
+  '/me',
+  authenticate,
+  validate(updateProfileSchema),
+  asyncHandler(async (req, res) => {
+    const user = await authService.updateProfile(req.user!.id, req.body);
+    res.json({ user });
+  }),
+);
+
+router.post(
+  '/change-password',
+  authenticate,
+  validate(changePasswordSchema),
+  asyncHandler(async (req, res) => {
+    const result = await authService.changePassword(req.user!.id, req.body);
+    res.json(result);
   }),
 );
 

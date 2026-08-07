@@ -302,3 +302,46 @@ export const updateUserRole = async (
 
   return toPublicUser(user);
 };
+
+export const updateProfile = async (
+  userId: string,
+  input: { firstName?: string; lastName?: string; phone?: string },
+) => {
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      ...(input.firstName !== undefined && { firstName: input.firstName }),
+      ...(input.lastName !== undefined && { lastName: input.lastName }),
+      ...(input.phone !== undefined && { phone: input.phone || null }),
+    },
+    select: publicUserSelect,
+  });
+
+  return toPublicUser(user);
+};
+
+export const changePassword = async (
+  userId: string,
+  input: { currentPassword: string; newPassword: string },
+) => {
+  const user = await prisma.user.findFirst({
+    where: { id: userId, deletedAt: null },
+  });
+
+  if (!user) {
+    throw new AppError(404, 'User not found');
+  }
+
+  const valid = await comparePassword(input.currentPassword, user.passwordHash);
+  if (!valid) {
+    throw new AppError(400, 'Current password is incorrect');
+  }
+
+  const newHash = await hashPassword(input.newPassword);
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash: newHash },
+  });
+
+  return { message: 'Password changed successfully' };
+};

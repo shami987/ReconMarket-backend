@@ -15,6 +15,7 @@ const router = Router();
 router.get(
   '/tree',
   asyncHandler(async (_req, res) => {
+    res.set('Cache-Control', 'public, max-age=300, s-maxage=600, stale-while-revalidate=1200');
     const result = await categoryService.getCategoryTree();
     res.json(result);
   }),
@@ -24,6 +25,7 @@ router.get(
   '/',
   validate(listCategoriesQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
+    res.set('Cache-Control', 'public, max-age=300, s-maxage=600, stale-while-revalidate=1200');
     const result = await categoryService.listCategories(
       req.validatedQuery as Parameters<typeof categoryService.listCategories>[0],
     );
@@ -35,6 +37,7 @@ router.get(
   '/:slug',
   validate(categorySlugParamSchema, 'params'),
   asyncHandler(async (req, res) => {
+    res.set('Cache-Control', 'public, max-age=300, s-maxage=600, stale-while-revalidate=1200');
     const category = await categoryService.getCategoryBySlug(req.params.slug as string);
     res.json({ category });
   }),

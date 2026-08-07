@@ -453,3 +453,13 @@ model Otp {
   @@index([expiresAt])
   @@map("otps")
 }
+
+// ─── Platform Settings ─────────────────────────────────────────────────────
+
+model PlatformSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("platform_settings")
+}
