@@ -13,6 +13,7 @@ const sellerSummarySelect = {
   id: true,
   firstName: true,
   lastName: true,
+  phone: true,
   verificationType: true,
   avatarUrl: true,
 } as const;
