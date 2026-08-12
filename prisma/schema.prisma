@@ -80,6 +80,13 @@ enum OtpPurpose {
   LOGIN
 }
 
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
 // ─── Users ───────────────────────────────────────────────────────────────────
 
 model User {
@@ -113,6 +120,8 @@ model User {
   refreshTokens       RefreshToken[]
   otps                Otp[]
   verificationReviews SellerVerification[] @relation("VerificationReviewer")
+  supportTickets      SupportTicket[]
+  supportReplies      SupportTicket[]    @relation("SupportReplier")
 
   @@index([role])
   @@index([verificationType])
@@ -397,4 +406,27 @@ model PlatformSetting {
   updatedAt DateTime @updatedAt
 
   @@map("platform_settings")
+}
+
+// ─── Support Tickets ────────────────────────────────────────────────
+
+model SupportTicket {
+  id          String              @id @default(uuid())
+  userId      String
+  subject     String
+  message     String
+  status      SupportTicketStatus @default(OPEN)
+  reply       String?
+  repliedById String?
+  repliedAt   DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  user       User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repliedBy  User? @relation("SupportReplier", fields: [repliedById], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("support_tickets")
 }
