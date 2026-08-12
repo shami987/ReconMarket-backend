@@ -15,6 +15,7 @@ import notificationRouter from './routes/notification.routes';
 import transactionRouter from './routes/transaction.routes';
 import uploadRouter from './routes/upload.routes';
 import verificationRouter from './routes/verification.routes';
+import supportRouter from './routes/support.routes';
 
 const app = express();
 
@@ -69,6 +70,7 @@ app.use('/api/transactions', transactionRouter);
 app.use('/api/uploads', uploadRouter);
 app.use('/api/verification', verificationRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/support', supportRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
