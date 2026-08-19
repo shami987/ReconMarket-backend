@@ -40,6 +40,7 @@ export const register = async (input: {
   password: string;
   firstName: string;
   lastName: string;
+  phone?: string;
 }) => {
   const existing = await prisma.user.findFirst({
     where: {
@@ -52,6 +53,19 @@ export const register = async (input: {
     throw new AppError(409, 'Email already registered');
   }
 
+  if (input.phone) {
+    const phoneExists = await prisma.user.findFirst({
+      where: {
+        phone: input.phone,
+        deletedAt: null,
+      },
+    });
+
+    if (phoneExists) {
+      throw new AppError(409, 'Phone number already registered');
+    }
+  }
+
   const passwordHash = await hashPassword(input.password);
 
   const user = await prisma.user.create({
@@ -60,6 +74,7 @@ export const register = async (input: {
       passwordHash,
       firstName: input.firstName,
       lastName: input.lastName,
+      phone: input.phone || null,
     },
     select: publicUserSelect,
   });
